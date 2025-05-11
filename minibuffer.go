@@ -40,6 +40,16 @@ func (e *editor) drawMinibuffer() {
 			e.scr.SetContent(j+i, height-1, ch, nil, color)
 			j++
 		}
+	} else {
+		var color tcell.Style
+		if e.minibuf.warning {
+			color = e.colors.warning
+		} else {
+			color = e.colors.minibuffer
+		}
+		for i, ch := range e.minibuf.content {
+			e.scr.SetContent(i, height-1, ch, nil, color)
+		}
 	}
 }
 
@@ -60,7 +70,9 @@ func (e *editor) commandMode(prompt string) (result string, cancelled bool) {
 			quit, cancelled := e.commandModeKeyTyped(ev)
 			if quit {
 				e.minibuf.active = false
-				return e.minibuf.content, cancelled
+				content := e.minibuf.content
+				e.clearMinibuf()
+				return content, cancelled
 			}
 		}
 	}
@@ -121,4 +133,14 @@ func (e *editor) commandModeInsert(ch rune) {
 
 	e.minibuf.content = newContent.String()
 	e.minibuf.cursor++
+}
+
+func (e *editor) warn(msg string) {
+	e.minibuf.content = msg
+	e.minibuf.warning = true
+}
+
+func (e *editor) clearMinibuf() {
+	e.minibuf.content = ""
+	e.minibuf.warning = false
 }

@@ -6,6 +6,7 @@ type colorscheme struct {
 	def        tcell.Style
 	bar        tcell.Style
 	minibuffer tcell.Style
+	warning    tcell.Style
 	lineNums   tcell.Style
 	eob        tcell.Style
 }
@@ -21,6 +22,8 @@ func (e *editor) loadDefaultColorscheme() {
 
 	c.minibuffer = tcell.StyleDefault.
 		Background(tcell.ColorBlack).Foreground(tcell.ColorWhite)
+
+	c.warning = c.minibuffer.Foreground(tcell.ColorRed)
 
 	c.lineNums = tcell.StyleDefault.
 		Background(tcell.ColorGray).Foreground(tcell.ColorYellow)

@@ -113,3 +113,7 @@ func (e *editor) gotoBuffer(win *window, buf *buffer) {
 	e.window.cursorOffset = 0
 	e.window.lineOffset = 0
 }
+
+func (w *window) runePress(r rune) {
+	w.buf.insert(w.cursorOffset, r)
+}

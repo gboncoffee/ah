@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/gdamore/tcell/v2"
+	"slices"
 )
 
 type editor struct {
@@ -110,6 +111,10 @@ func (e *editor) defaultEventHandler(ev tcell.Event) {
 		switch ev.Key() {
 		case tcell.KeyCtrlQ:
 			e.quit()
+		case tcell.KeyCtrlW:
+			e.commandDelete()
+		case tcell.KeyCtrlG:
+			e.clearMinibuf()
 		case tcell.KeyCtrlP:
 			cmd, cancelled := e.commandMode(":")
 			if !cancelled {
@@ -120,17 +125,41 @@ func (e *editor) defaultEventHandler(ev tcell.Event) {
 }
 
 func (e *editor) executeCommand(command string) {
-	switch command {
-	case "quit\n":
+	switch command[:len(command)-1] {
+	case "quit":
 		e.quit()
-	case "new\n":
+	case "new":
 		e.commandNew()
+	case "delete":
+		e.commandDelete()
 	}
 }
 
 func (e *editor) commandNew() {
 	buf := e.addUnnamedBuffer()
 	e.gotoBuffer(e.window, buf)
+}
+
+func (e *editor) commandDelete() {
+	buf := e.window.buf
+
+	// Don't delete scratch.
+	if buf == e.buffers[0] {
+		e.warn("Refusing to delete scratch buffer.")
+		return
+	}
+
+	idx := 0
+	for i, b := range e.buffers {
+		if b == buf {
+			idx = i
+			break
+		}
+	}
+
+	e.buffers = slices.Delete(e.buffers, idx, idx+1)
+
+	e.gotoBuffer(e.window, e.buffers[idx-1])
 }
 
 func (e *editor) quit() {
