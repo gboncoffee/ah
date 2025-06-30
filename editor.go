@@ -1,168 +1,157 @@
 package main
 
 import (
-	"os"
+	"math"
+	"strconv"
+
+	"github.com/gboncoffee/ah/ui"
 
 	"github.com/gdamore/tcell/v2"
-	"slices"
 )
 
-type editor struct {
-	scr     tcell.Screen
-	colors  colorscheme
-	minibuf minibuffer
-	top     topBar
-	buffers []*buffer
-	window  *window
+type Cursor struct {
+	Begin int
+	End   int
 }
 
-type size struct {
-	width  int
-	height int
+// Implements the EditorView ui interface.
+type Editor struct {
+	buffer               Buffer
+	cursors              []Cursor
+	firstLine            int
+	vs                   ui.VirtualEditorScreen
+	width                int
+	height               int
+	TextWidth            int
+	numColumnSize        int
+	NumberColumn         bool
+	DefaultStyle         *tcell.Style
+	NumberColumnStyle    *tcell.Style
+	CursorStyle          *tcell.Style
+	TextWidthColumnStyle *tcell.Style
 }
 
-type position struct {
-	x int
-	y int
+func (e *Editor) Event(ev ui.Event) {}
+
+func (e *Editor) VirtualScreen(width, height int, focus bool) ui.VirtualEditorScreen {
+	if e.vs != nil && width == e.width && height == e.height {
+		e.render(focus)
+		return e.vs
+	}
+	e.newVS(width, height)
+	e.render(focus)
+	return e.vs
 }
 
-func (e *editor) render() {
-	e.drawBars()
-	e.drawWindows()
-	e.drawMinibuffer()
-}
-
-func initEditorOrPanic() *editor {
-	scr, err := tcell.NewScreen()
-	if err != nil {
-		panic(err)
+func (e *Editor) newVS(width, height int) {
+	vs := make(ui.VirtualEditorScreen, height)
+	for i := range vs {
+		vs[i] = make([]ui.VirtualRune, width)
 	}
 
-	if err := scr.Init(); err != nil {
-		panic(err)
-	}
-
-	scr.EnableMouse()
-	scr.EnablePaste()
-
-	scr.SetTitle("ḥăzā")
-
-	scr.SetStyle(tcell.StyleDefault)
-
-	scr.Clear()
-
-	e := editor{
-		scr: scr,
-	}
-
-	e.loadDefaultColorscheme()
-	e.initFirstWindow()
-
-	return &e
+	e.vs = vs
+	e.width = width
+	e.height = height
 }
 
-func (e *editor) initScratchBuffer() {
-	buf, _ := e.addBuffer(`Welcome to the ḥăzā' text editor.
-This is a scratch buffer you can use for text that will not be saved.
-`, "scratch/")
-	e.window.buf = buf
-}
+// TODO: Make the render function less ugly. Holy fucking shit. It's just too
+// ugly. Please.
 
-func (e *editor) initFirstWindow() {
-	e.window = new(window)
-	e.recalculateWindowsPos()
-	e.window.firstLine = 1
-	e.initScratchBuffer()
-	e.window.buf, _ = e.getBufferByName("scratch/")
-}
+func (e *Editor) render(focus bool) {
+	disp := e.buffer.Displacement(e.firstLine)
+	reader := e.buffer.DisplacedReader(disp)
 
-func (e *editor) recalculateWindowsPos() {
-	maxWidth, maxHeight := e.scr.Size()
-	maxHeight -= 2
-
-	e.window.pos = position{0, 1}
-	e.window.sz = size{maxWidth, maxHeight}
-}
-
-func (e *editor) mainLoop() {
-	defer func() {
-		maybePanic := recover()
-		e.scr.Fini()
-		if maybePanic != nil {
-			panic(maybePanic)
-		}
-	}()
-
-	for {
-		e.render()
-		e.scr.Show()
-
-		e.defaultEventHandler(e.scr.PollEvent())
-	}
-}
-
-func (e *editor) defaultEventHandler(ev tcell.Event) {
-	switch ev := ev.(type) {
-	case *tcell.EventResize:
-		e.recalculateWindowsPos()
-		e.render()
-		e.scr.Sync()
-	case *tcell.EventKey:
-		switch ev.Key() {
-		case tcell.KeyCtrlQ:
-			e.quit()
-		case tcell.KeyCtrlW:
-			e.commandDelete()
-		case tcell.KeyCtrlG:
-			e.clearMinibuf()
-		case tcell.KeyCtrlP:
-			cmd, cancelled := e.commandMode(":")
-			if !cancelled {
-				e.executeCommand(cmd)
+	for i := range e.height {
+		for j := range e.width {
+			e.vs[i][j] = ui.VirtualRune{
+				Rune:  ' ',
+				Style: e.DefaultStyle,
 			}
 		}
 	}
-}
 
-func (e *editor) executeCommand(command string) {
-	switch command[:len(command)-1] {
-	case "quit":
-		e.quit()
-	case "new":
-		e.commandNew()
-	case "delete":
-		e.commandDelete()
-	}
-}
-
-func (e *editor) commandNew() {
-	buf := e.addUnnamedBuffer()
-	e.gotoBuffer(e.window, buf)
-}
-
-func (e *editor) commandDelete() {
-	buf := e.window.buf
-
-	// Don't delete scratch.
-	if buf == e.buffers[0] {
-		e.warn("Refusing to delete scratch buffer.")
-		return
+	if e.NumberColumn {
+		e.numColumnSize =
+			max(int(math.Floor(math.Log10(float64(e.buffer.Lines()))))+2, 5)
 	}
 
-	idx := 0
-	for i, b := range e.buffers {
-		if b == buf {
-			idx = i
-			break
+	// Fill textwidth column if needed.
+	maxWidth := e.width
+	if e.TextWidth != 0 && e.TextWidth+e.numColumnSize < e.width {
+		maxWidth = e.TextWidth + e.numColumnSize
+		for i := range e.height {
+			e.vs[i][maxWidth].Style = e.TextWidthColumnStyle
 		}
 	}
 
-	e.buffers = slices.Delete(e.buffers, idx, idx+1)
+	curx := 0
+	cury := 0
+	curline := e.firstLine + 1
+	stopReading := false
 
-	e.gotoBuffer(e.window, e.buffers[idx-1])
-}
+	for cury < e.height {
+		num := "~ "
+		var line string
+		if !stopReading {
+			var err error
+			line, err = reader.ReadString('\n')
+			if err != nil {
+				stopReading = true
+			} else if e.NumberColumn {
+				num = strconv.Itoa(curline) + " "
+			}
+		}
 
-func (e *editor) quit() {
-	e.scr.Fini()
-	os.Exit(0)
+		if e.NumberColumn {
+			for range e.numColumnSize - 2 {
+				num = " " + num
+			}
+
+			for curx+len(num) < e.numColumnSize {
+				e.vs[cury][curx].Style = e.NumberColumnStyle
+				curx++
+			}
+			for _, c := range num {
+				e.vs[cury][curx].Style = e.NumberColumnStyle
+				e.vs[cury][curx].Rune = c
+				curx++
+			}
+		}
+
+		for _, c := range line {
+			color := e.DefaultStyle
+			if focus {
+				for _, cursor := range e.cursors {
+					if cursor.Begin <= disp && cursor.End > disp {
+						color = e.CursorStyle
+					}
+				}
+			}
+			e.vs[cury][curx].Style = color
+			e.vs[cury][curx].Rune = c
+			disp++
+			curx++
+			if curx >= maxWidth {
+				cury++
+				// Dijkstra probably hates me.
+				if cury > e.height {
+					return
+				}
+				curx = 0
+				if e.NumberColumn {
+					for curx < e.numColumnSize-1 {
+						e.vs[cury][curx].Style = e.NumberColumnStyle
+						e.vs[cury][curx].Rune = '>'
+						curx++
+					}
+					e.vs[cury][curx].Style = e.NumberColumnStyle
+					curx++
+				}
+			}
+		}
+
+		curline++
+		cury++
+		curx = 0
+	}
 }

@@ -1,146 +1,39 @@
 package main
 
 import (
+	"bufio"
 	"strings"
-
-	"github.com/gdamore/tcell/v2"
 )
 
-type minibuffer struct {
-	prompt  string
-	content string
-	cursor  int
-	active  bool
-	warning bool
+type Minibuffer struct {
+	Prompt  string
+	Editor  *Editor
+	Content string
 }
 
-func (e *editor) drawMinibuffer() {
-	width, height := e.scr.Size()
-
-	for i := range width {
-		e.scr.SetContent(i, height-1, ' ', nil, e.colors.minibuffer)
-	}
-
-	if e.minibuf.active {
-		var i int
-		for _, ch := range e.minibuf.prompt {
-			e.scr.SetContent(i, height-1, ch, nil, e.colors.minibuffer)
-			i++
-			if i >= width {
-				break
-			}
-		}
-
-		var j int
-		for _, ch := range e.minibuf.content {
-			color := e.colors.minibuffer
-			if j == e.minibuf.cursor {
-				color = color.Reverse(true)
-			}
-			e.scr.SetContent(j+i, height-1, ch, nil, color)
-			j++
-		}
-	} else {
-		var color tcell.Style
-		if e.minibuf.warning {
-			color = e.colors.warning
-		} else {
-			color = e.colors.minibuffer
-		}
-		for i, ch := range e.minibuf.content {
-			e.scr.SetContent(i, height-1, ch, nil, color)
-		}
+func (m *Minibuffer) Init() {
+	m.Prompt = ""
+	m.Editor = &Editor{
+		buffer:       m,
+		cursors:      []Cursor{{Begin: 0, End: 1}},
+		NumberColumn: false,
+		DefaultStyle: &COLORS.Minibuffer,
+		CursorStyle:  &COLORS.Cursor,
 	}
 }
 
-func (e *editor) commandMode(prompt string) (result string, cancelled bool) {
-	e.minibuf.active = true
-	e.minibuf.prompt = prompt
-	e.minibuf.cursor = 0
-	e.minibuf.content = "\n"
-
-	for {
-		e.render()
-		e.scr.Show()
-
-		switch ev := e.scr.PollEvent().(type) {
-		case *tcell.EventResize:
-			e.defaultEventHandler(ev)
-		case *tcell.EventKey:
-			quit, cancelled := e.commandModeKeyTyped(ev)
-			if quit {
-				e.minibuf.active = false
-				content := e.minibuf.content
-				e.clearMinibuf()
-				return content, cancelled
-			}
-		}
-	}
+func (m *Minibuffer) Displacement(disp int) int {
+	return 0
 }
 
-func (e *editor) commandModeKeyTyped(
-	ev *tcell.EventKey,
-) (quit bool, cancelled bool) {
-
-	switch ev.Key() {
-
-	case tcell.KeyLeft:
-		e.commandModeLeft()
-		return false, false
-
-	case tcell.KeyRight:
-		e.commandModeRight()
-		return false, false
-
-	case tcell.KeyRune:
-		e.commandModeInsert(ev.Rune())
-		return false, false
-
-	case tcell.KeyCtrlW:
-		return true, true
-
-	case tcell.KeyEnter:
-		return true, false
-
-	default:
-		return false, false
-	}
+func (m *Minibuffer) DisplacedReader(disp int) *bufio.Reader {
+	return bufio.NewReader(strings.NewReader(m.Content))
 }
 
-func (e *editor) commandModeLeft() {
-	if e.minibuf.cursor > 0 {
-		e.minibuf.cursor--
-	}
+func (m *Minibuffer) Insert(disp int, content string) {
+	m.Content = m.Content[:disp] + content + m.Content[disp:]
 }
 
-func (e *editor) commandModeRight() {
-	if e.minibuf.cursor < len(e.minibuf.content)-1 {
-		e.minibuf.cursor++
-	}
-}
-
-func (e *editor) commandModeInsert(ch rune) {
-	var newContent strings.Builder
-
-	var i int
-	for _, oldch := range e.minibuf.content {
-		if i == e.minibuf.cursor {
-			newContent.WriteRune(ch)
-		}
-		newContent.WriteRune(oldch)
-		i++
-	}
-
-	e.minibuf.content = newContent.String()
-	e.minibuf.cursor++
-}
-
-func (e *editor) warn(msg string) {
-	e.minibuf.content = msg
-	e.minibuf.warning = true
-}
-
-func (e *editor) clearMinibuf() {
-	e.minibuf.content = ""
-	e.minibuf.warning = false
+func (m *Minibuffer) Lines() int {
+	return 1
 }
