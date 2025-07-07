@@ -11,16 +11,18 @@ This is the 80th column --->                                                    
 This is a very long line to test wether the text wrapping functionality of the renderer is properly working or not.
 `
 
+var UI *ui.Ui
+
 func main() {
 	var e Haza
 
-	e.ui = ui.New()
+	UI = ui.New()
 	e.InitColors()
 	e.InitMinibuffer()
 
 	buf := e.NewBuffer(scratchString, "/scratch")
 
-	e.ui.Start(func(s *ui.State) {
+	UI.Start(func(s *ui.State) {
 		s.Editor = buf.Editors[0]
 		s.Minibuffer = e.Minibuffer.Editor
 	})

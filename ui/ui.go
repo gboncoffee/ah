@@ -77,7 +77,7 @@ func (ui *Ui) mainloop() {
 		case <-ui.exit:
 			return
 		case ev := <-input:
-			ui.input(EventFromTcell(ev))
+			go ui.input(EventFromTcell(ev))
 		}
 	}
 }

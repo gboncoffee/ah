@@ -1,7 +1,8 @@
 package main
 
 import (
-	"bufio"
+	"errors"
+
 	"github.com/deadpixi/rope"
 )
 
@@ -23,26 +24,25 @@ func (b *FileBuffer) NewEditor() (e *Editor) {
 	e.CursorStyle = &COLORS.Cursor
 	e.TextWidthColumnStyle = &COLORS.TextWidthColumn
 
+	e.AddCursor(Cursor{Begin: 0, End: 1})
+
 	return
 }
 
-func (b *FileBuffer) Displacement(line int) (disp int) {
-	reader := bufio.NewReader(b.content.Reader())
-	for nlines := 0; nlines != line; nlines++ {
-		s, _ := reader.ReadString('\n')
-		disp += len(s)
+func (b *FileBuffer) Insert(disp int, c byte) error {
+	b.content = b.content.InsertString(disp, string(c))
+	return nil
+}
+
+func (b *FileBuffer) Get(disp int) (byte, error) {
+	var buffer [1]byte
+	n, err := b.content.ReadAt(buffer[:], int64(disp))
+	if err != nil {
+		return 0, err
 	}
-	return
-}
+	if n != 1 {
+		return 0, errors.New("nothing to read")
+	}
 
-func (b *FileBuffer) DisplacedReader(disp int) (reader *bufio.Reader) {
-	return bufio.NewReader(b.content.OffsetReader(disp))
-}
-
-func (b *FileBuffer) Lines() int {
-	return b.lines
-}
-
-func (b *FileBuffer) Insert(disp int, content string) {
-	b.content = b.content.InsertString(disp, content)
+	return buffer[0], nil
 }

@@ -1,8 +1,7 @@
 package main
 
 import (
-	"bufio"
-	"strings"
+	"errors"
 )
 
 type Minibuffer struct {
@@ -22,18 +21,18 @@ func (m *Minibuffer) Init() {
 	}
 }
 
-func (m *Minibuffer) Displacement(disp int) int {
-	return 0
+func (b *Minibuffer) Insert(disp int, c byte) error {
+	if c != '\n' {
+		b.Content = b.Content[:disp] + string(c) + b.Content[disp:]
+	}
+
+	return nil
 }
 
-func (m *Minibuffer) DisplacedReader(disp int) *bufio.Reader {
-	return bufio.NewReader(strings.NewReader(m.Content))
-}
+func (b *Minibuffer) Get(disp int) (byte, error) {
+	if len(b.Content) >= disp {
+		return 0, errors.New("nothing to read")
+	}
 
-func (m *Minibuffer) Insert(disp int, content string) {
-	m.Content = m.Content[:disp] + content + m.Content[disp:]
-}
-
-func (m *Minibuffer) Lines() int {
-	return 1
+	return b.Content[disp], nil
 }

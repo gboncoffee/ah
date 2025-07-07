@@ -1,8 +1,6 @@
 package main
 
 import (
-	"github.com/gboncoffee/ah/ui"
-
 	"github.com/deadpixi/rope"
 	"github.com/gdamore/tcell/v2"
 )
@@ -18,7 +16,6 @@ type Colorscheme struct {
 var COLORS Colorscheme
 
 type Haza struct {
-	ui         *ui.Ui
 	Buffers    []*FileBuffer
 	Minibuffer Minibuffer
 	Editors    []*Editor

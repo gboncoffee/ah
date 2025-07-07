@@ -2,7 +2,9 @@ package main
 
 import (
 	"math"
+	"slices"
 	"strconv"
+	"unicode/utf8"
 
 	"github.com/gboncoffee/ah/ui"
 
@@ -19,11 +21,9 @@ type Editor struct {
 	buffer               Buffer
 	cursors              []Cursor
 	firstLine            int
+	disp                 int
 	vs                   ui.VirtualEditorScreen
-	width                int
-	height               int
 	TextWidth            int
-	numColumnSize        int
 	NumberColumn         bool
 	DefaultStyle         *tcell.Style
 	NumberColumnStyle    *tcell.Style
@@ -31,10 +31,48 @@ type Editor struct {
 	TextWidthColumnStyle *tcell.Style
 }
 
-func (e *Editor) Event(ev ui.Event) {}
+func (e *Editor) Event(event ui.Event) {
+	switch ev := event.(type) {
+	case *ui.KeyPress:
+		e.KeyEvent(ev)
+	case *ui.RuneEntered:
+		e.RuneEntered(ev)
+	}
+}
+
+func (e *Editor) AddCursor(cursor Cursor) {
+	i := 0
+	for i < len(e.cursors) {
+		if e.cursors[i].Begin >= cursor.Begin {
+			e.cursors = slices.Insert(e.cursors, i, cursor)
+		}
+	}
+	e.cursors = slices.Insert(e.cursors, i, cursor)
+}
+
+func (e *Editor) RuneEntered(re *ui.RuneEntered) {
+	var buffer [4]byte
+	slice := buffer[:]
+	size := utf8.EncodeRune(slice, re.Rune)
+
+	for _, byte := range slice[:size] {
+		for i := range e.cursors {
+			e.buffer.Insert(e.cursors[i].Begin, byte)
+			for j := range e.cursors[i:] {
+				e.cursors[j].Begin++
+				e.cursors[j].End++
+			}
+		}
+	}
+
+	UI.Update(func(_ *ui.State) {})
+}
+
+func (e *Editor) KeyEvent(key *ui.KeyPress) {
+}
 
 func (e *Editor) VirtualScreen(width, height int, focus bool) ui.VirtualEditorScreen {
-	if e.vs != nil && width == e.width && height == e.height {
+	if e.vs != nil && len(e.vs[0]) == width && len(e.vs) == height {
 		e.render(focus)
 		return e.vs
 	}
@@ -50,108 +88,148 @@ func (e *Editor) newVS(width, height int) {
 	}
 
 	e.vs = vs
-	e.width = width
-	e.height = height
 }
 
 // TODO: Make the render function less ugly. Holy fucking shit. It's just too
 // ugly. Please.
 
+func getRune(b Buffer, disp int) (r rune, newDisp int) {
+	var buffer [4]byte
+	firstByte, err := b.Get(disp)
+	if err != nil {
+		return ' ', disp
+	}
+	buffer[0] = firstByte
+	buffer[1], _ = b.Get(disp + 1)
+	buffer[2], _ = b.Get(disp + 2)
+	buffer[3], _ = b.Get(disp + 3)
+
+	var size int
+	r, size = utf8.DecodeRune(buffer[:])
+	return r, disp + size
+}
+
 func (e *Editor) render(focus bool) {
-	disp := e.buffer.Displacement(e.firstLine)
-	reader := e.buffer.DisplacedReader(disp)
+	width := len(e.vs[0])
+	height := len(e.vs)
 
-	for i := range e.height {
-		for j := range e.width {
-			e.vs[i][j] = ui.VirtualRune{
-				Rune:  ' ',
-				Style: e.DefaultStyle,
-			}
+	// Fill default style and character.
+	for i := range e.vs {
+		for j := range e.vs[i] {
+			e.vs[i][j].Style = e.DefaultStyle
+			e.vs[i][j].Rune = ' '
 		}
 	}
 
+	// Compute number column width.
+	lineNumWidth := 0
 	if e.NumberColumn {
-		e.numColumnSize =
-			max(int(math.Floor(math.Log10(float64(e.buffer.Lines()))))+2, 5)
+		lineNumWidth = max(int(math.Log10(float64(e.firstLine+height)))+1, 5)
 	}
 
-	// Fill textwidth column if needed.
-	maxWidth := e.width
-	if e.TextWidth != 0 && e.TextWidth+e.numColumnSize < e.width {
-		maxWidth = e.TextWidth + e.numColumnSize
-		for i := range e.height {
-			e.vs[i][maxWidth].Style = e.TextWidthColumnStyle
-		}
+	// Compute max width
+	maxWidth := width
+	if e.TextWidth != 0 {
+		maxWidth = min(width, lineNumWidth+e.TextWidth+1)
 	}
 
 	curx := 0
 	cury := 0
-	curline := e.firstLine + 1
-	stopReading := false
+	disp := e.disp
+	line := e.firstLine
 
-	for cury < e.height {
-		num := "~ "
-		var line string
-		if !stopReading {
-			var err error
-			line, err = reader.ReadString('\n')
-			if err != nil {
-				stopReading = true
-			} else if e.NumberColumn {
-				num = strconv.Itoa(curline) + " "
-			}
-		}
+	continuing := false
+	end := false
 
+	r, newDisp := getRune(e.buffer, disp)
+	if newDisp == disp {
+		end = true
+	}
+
+line:
+	for cury < height {
+		// Render line numbers or line continuations.
 		if e.NumberColumn {
-			for range e.numColumnSize - 2 {
-				num = " " + num
-			}
-
-			for curx+len(num) < e.numColumnSize {
-				e.vs[cury][curx].Style = e.NumberColumnStyle
-				curx++
-			}
-			for _, c := range num {
-				e.vs[cury][curx].Style = e.NumberColumnStyle
-				e.vs[cury][curx].Rune = c
-				curx++
-			}
-		}
-
-		for _, c := range line {
-			color := e.DefaultStyle
-			if focus {
-				for _, cursor := range e.cursors {
-					if cursor.Begin <= disp && cursor.End > disp {
-						color = e.CursorStyle
-					}
-				}
-			}
-			e.vs[cury][curx].Style = color
-			e.vs[cury][curx].Rune = c
-			disp++
-			curx++
-			if curx >= maxWidth {
-				cury++
-				// Dijkstra probably hates me.
-				if cury > e.height {
-					return
-				}
-				curx = 0
-				if e.NumberColumn {
-					for curx < e.numColumnSize-1 {
-						e.vs[cury][curx].Style = e.NumberColumnStyle
-						e.vs[cury][curx].Rune = '>'
-						curx++
-					}
+			if continuing {
+				for curx < lineNumWidth {
 					e.vs[cury][curx].Style = e.NumberColumnStyle
 					curx++
 				}
+			} else if end {
+				e.vs[cury][curx].Style = e.NumberColumnStyle
+				e.vs[cury][curx].Rune = '~'
+				curx++
+				for curx < lineNumWidth {
+					e.vs[cury][curx].Style = e.NumberColumnStyle
+					curx++
+				}
+				curx = 0
+				cury++
+				continue line
+			} else {
+				num := strconv.Itoa(line)
+				for curx < lineNumWidth-1-len(num) {
+					e.vs[cury][curx].Style = e.NumberColumnStyle
+					e.vs[cury][curx].Rune = ' '
+					curx++
+				}
+				for _, c := range num {
+					e.vs[cury][curx].Style = e.NumberColumnStyle
+					e.vs[cury][curx].Rune = c
+					curx++
+				}
+				e.vs[cury][curx].Style = e.NumberColumnStyle
+				curx++
 			}
 		}
 
-		curline++
-		cury++
+		for curx < maxWidth {
+			// Render cursors.
+			if focus {
+				for _, cursor := range e.cursors {
+					if disp >= cursor.Begin && disp < cursor.End {
+						e.vs[cury][curx].Style = e.CursorStyle
+					}
+				}
+			}
+
+			if r == '\n' {
+				line++
+				cury++
+				curx = 0
+				continuing = false
+
+				disp = newDisp
+				r, newDisp = getRune(e.buffer, disp)
+				if newDisp == disp {
+					end = true
+				}
+
+				continue line
+			}
+
+			if r != 0 {
+				e.vs[cury][curx].Rune = r
+			}
+
+			curx++
+
+			disp = newDisp
+			r, newDisp = getRune(e.buffer, disp)
+			if newDisp == disp {
+				end = true
+			}
+		}
+
+		continuing = true
 		curx = 0
+		cury++
+	}
+
+	// Fill text width column.
+	if maxWidth < width {
+		for h := range height {
+			e.vs[h][maxWidth].Style = e.TextWidthColumnStyle
+		}
 	}
 }

@@ -4,6 +4,8 @@ func (ui *Ui) input(ev Event) {
 	switch e := ev.(type) {
 	case *KeyPress:
 		ui.keypress(e)
+	case *RuneEntered:
+		ui.runeEntered(e)
 	case *Resize:
 		ui.resize(e)
 	case *MouseRightClick:
@@ -26,6 +28,16 @@ func (ui *Ui) input(ev Event) {
 func (ui *Ui) keypress(e *KeyPress) {
 	if e.Key == KeyCtrlC {
 		ui.Exit()
+	}
+
+	if ui.state.mode == modeEditor && ui.state.Editor != nil {
+		ui.state.Editor.Event(e)
+	}
+}
+
+func (ui *Ui) runeEntered(e *RuneEntered) {
+	if ui.state.mode == modeEditor && ui.state.Editor != nil {
+		ui.state.Editor.Event(e)
 	}
 }
 
