@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"math"
 	"slices"
 	"strconv"
@@ -42,15 +41,6 @@ func NewEditor(b Buffer) (e *Editor) {
 	return
 }
 
-func (e *Editor) Event(event ui.Event) {
-	switch ev := event.(type) {
-	case *ui.KeyPress:
-		e.KeyEvent(ev)
-	case *ui.RuneEntered:
-		e.RuneEntered(ev)
-	}
-}
-
 func (e *Editor) AddCursor(cursor Cursor) {
 	i := 0
 	for i < len(e.cursors) {
@@ -60,72 +50,6 @@ func (e *Editor) AddCursor(cursor Cursor) {
 		}
 	}
 	e.cursors = slices.Insert(e.cursors, i, cursor)
-}
-
-func (e *Editor) RuneEntered(re *ui.RuneEntered) {
-	// The function is inside the Update as to not cause race conditions in the
-	// insertion.
-	E.Ui.Update(func(_ *ui.State) {
-		var buffer [4]byte
-		slice := buffer[:]
-		size := utf8.EncodeRune(slice, re.Rune)
-
-		for _, byte := range slice[:size] {
-			for i := range e.cursors {
-				e.buffer.Insert(e.cursors[i].Begin, byte)
-				for j := range e.cursors[i:] {
-					e.cursors[j].Begin++
-					e.cursors[j].End++
-				}
-			}
-		}
-	})
-}
-
-func (e *Editor) KeyEvent(key *ui.KeyPress) {
-	switch key.Key {
-	case ui.KeyCtrlS:
-		e.save()
-	case ui.KeyBackspace, ui.KeyBackspace2:
-		e.backspace()
-	}
-}
-
-func (e *Editor) save() {
-	if fb, ok := e.buffer.(*FileBuffer); ok {
-		E.Ui.Update(func(s *ui.State) {
-			s.Message = fmt.Sprintf("Saving buffer %v...", fb.Name())
-		})
-		if err := fb.TrySave(); err != nil {
-			E.Ui.Update(func(s *ui.State) {
-				s.Warning = fmt.Sprintf("Error: %v", err)
-			})
-		} else {
-			E.Ui.Update(func(s *ui.State) {
-				s.Message = fmt.Sprintf("Saved buffer %v", fb.Name())
-			})
-		}
-	} else {
-		E.Ui.Update(func(s *ui.State) {
-			s.Warning = "Error: cannot save non-file buffer."
-		})
-	}
-}
-
-func (e *Editor) backspace() {
-	// The function is inside the Update as to not cause race conditions in the
-	// deletion.
-	E.Ui.Update(func(_ *ui.State) {
-		for i := range e.cursors {
-			if e.cursors[i].Begin > 0 {
-				e.buffer.Delete(e.cursors[i].Begin - 1)
-				for j := range e.cursors[i:] {
-					e.cursors[j].Begin--
-					e.cursors[j].End--
-				}
-			}
-		}
-	})
 }
 
 func (e *Editor) VirtualScreen(width, height int, focus bool) ui.VirtualEditorScreen {
@@ -139,12 +63,10 @@ func (e *Editor) VirtualScreen(width, height int, focus bool) ui.VirtualEditorSc
 }
 
 func (e *Editor) newVS(width, height int) {
-	vs := make(ui.VirtualEditorScreen, height)
-	for i := range vs {
-		vs[i] = make([]ui.VirtualRune, width)
+	e.vs = make(ui.VirtualEditorScreen, height)
+	for i := range e.vs {
+		e.vs[i] = make([]ui.VirtualRune, width)
 	}
-
-	e.vs = vs
 }
 
 // TODO: Make the render function less ugly. Holy fucking shit. It's just too

@@ -3,46 +3,48 @@ package main
 import "errors"
 
 type Minibuffer struct {
-	Prompt  string
-	Editor  *Editor
-	Content string
+	prompt  string
+	content string
+	editor  *Editor
+	commit  func(string)
+	cancel  func()
 }
 
-func (m *Minibuffer) Init() {
-	m.Prompt = ""
-	m.Editor = NewEditor(m)
-	m.Editor.AddCursor(Cursor{Begin: 0, End: 1})
-	m.Editor.DefaultStyle = &E.Colors.Minibuffer
-	m.Editor.CursorStyle = &E.Colors.Cursor
+func (b *Minibuffer) Init() {
+	b.prompt = ""
+	b.editor = NewEditor(b)
+	b.editor.AddCursor(Cursor{Begin: 0, End: 1})
+	b.editor.DefaultStyle = &E.Colors.Minibuffer
+	b.editor.CursorStyle = &E.Colors.Cursor
+}
+
+func (b *Minibuffer) Editor() *Editor {
+	return b.editor
 }
 
 func (b *Minibuffer) Insert(disp int, c byte) error {
 	if c != '\n' {
-		b.Content = b.Content[:disp] + string(c) + b.Content[disp:]
-	}
-
-	return nil
-}
-
-func (b *Minibuffer) Get(disp int) (byte, error) {
-	if len(b.Content) >= disp {
-		return 0, errors.New("nothing to read")
-	}
-
-	return b.Content[disp], nil
-}
-
-func (b *Minibuffer) Delete(disp int) error {
-	if disp >= len(b.Content) {
-		return errors.New("index out of range")
-	}
-
-	if disp < len(b.Content)-1 {
-		b.Content = b.Content[:disp] + b.Content[disp:]
+		b.content = b.content[:disp] + string(c) + b.content[disp:]
 		return nil
 	}
 
-	b.Content = b.Content[:disp]
+	return errors.New("i'm the minibuffer")
+}
 
+func (b *Minibuffer) Get(disp int) (byte, error) {
+	if disp < len(b.prompt) {
+		return b.prompt[disp], nil
+	}
+
+	disp -= len(b.prompt)
+
+	if len(b.content) >= disp {
+		return 0, errors.New("nothing to read")
+	}
+
+	return b.content[disp], nil
+}
+
+func (b *Minibuffer) Delete(disp int) error {
 	return nil
 }

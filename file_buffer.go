@@ -40,6 +40,10 @@ func NewFileBuffer(name, content string) (fb *FileBuffer) {
 	return
 }
 
+func (b *FileBuffer) Editors() []*Editor {
+	return b.editors
+}
+
 func (b *FileBuffer) TrySave() error {
 	if strings.HasPrefix(b.name, "//") {
 		return fmt.Errorf("cannot save virtual file %v", b.name)

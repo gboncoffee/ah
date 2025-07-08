@@ -307,3 +307,7 @@ func mouseFromTcell(ev *tcell.EventMouse) Event {
 		y:          y,
 	}
 }
+
+func (ui *Ui) EventHandler(handler func(ev Event)) {
+	ui.handler = handler
+}

@@ -12,7 +12,6 @@ type VirtualRune struct {
 type VirtualEditorScreen [][]VirtualRune
 
 type EditorView interface {
-	Event(ev Event)
 	VirtualScreen(width, height int, focus bool) VirtualEditorScreen
 }
 

@@ -12,15 +12,9 @@ type Ui struct {
 	defaultStyle tcell.Style
 	messageStyle tcell.Style
 	warningStyle tcell.Style
+
+	handler func(ev Event)
 }
-
-type mode int
-
-const (
-	modeEditor = iota
-	modeMinibuffer
-	modeSide
-)
 
 type Update func(state *State)
 
@@ -81,7 +75,7 @@ func (ui *Ui) mainloop() {
 		case ev := <-input:
 			go func() {
 				defer ui.traceMeHarder(false)
-				ui.input(EventFromTcell(ev))
+				ui.handler(EventFromTcell(ev))
 			}()
 		}
 	}

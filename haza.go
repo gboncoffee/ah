@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"unicode/utf8"
@@ -23,6 +24,8 @@ type Colorscheme struct {
 
 var E Haza
 
+type FocusMode int
+
 type Haza struct {
 	Buffers    []*FileBuffer
 	Minibuffer Minibuffer
@@ -30,6 +33,7 @@ type Haza struct {
 	Editors    []*Editor
 	Colors     Colorscheme
 	Ui         *ui.Ui
+	focus      *Editor
 }
 
 func (e *Haza) NewBuffer(content string, name string) *FileBuffer {
@@ -64,6 +68,10 @@ func (e *Haza) InitMinibuffer() {
 
 func (e *Haza) Log(msg string) {
 	e.Logbuffer = append(e.Logbuffer, msg)
+}
+
+func (e *Haza) LogError(msg string) {
+	e.Logbuffer = append(e.Logbuffer, fmt.Sprintf("error: %v", msg))
 }
 
 func (e *Haza) Open(file string) (*FileBuffer, error) {

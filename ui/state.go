@@ -7,14 +7,18 @@ type State struct {
 	Minibuffer EditorView
 	Warning    string
 	Message    string
-	mode       mode
+	focus      any
 }
 
 func (ui *Ui) render() {
 	ui.screen.Clear()
 	w, h := ui.screen.Size()
 	if ui.state.Editor != nil {
-		ui.renderEditor(ui.state.Editor, 0, 0, w, h-1, ui.state.mode == modeEditor)
+		ui.renderEditor(
+			ui.state.Editor,
+			0, 0, w, h-1,
+			ui.state.Editor == ui.state.focus,
+		)
 	}
 
 	if ui.state.Warning != "" {
@@ -24,7 +28,11 @@ func (ui *Ui) render() {
 		ui.renderMessage(ui.state.Message, ui.messageStyle, w, h)
 		ui.state.Message = ""
 	} else if ui.state.Minibuffer != nil {
-		ui.renderEditor(ui.state.Minibuffer, 0, h-1, w, 1, ui.state.mode == modeMinibuffer)
+		ui.renderEditor(
+			ui.state.Minibuffer,
+			0, h-1, w, 1,
+			ui.state.Minibuffer == ui.state.focus,
+		)
 	}
 	ui.screen.Show()
 }
@@ -44,4 +52,8 @@ func (ui *Ui) renderMessage(message string, style tcell.Style, w, h int) {
 		ui.screen.SetContent(i, h-1, ' ', nil, style)
 		i++
 	}
+}
+
+func (s *State) Focus(thing any) {
+	s.focus = thing
 }

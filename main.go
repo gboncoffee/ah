@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 
 	"github.com/gboncoffee/ah/ui"
 )
@@ -38,33 +39,43 @@ func main() {
 	E.Ui.MessageStyle(E.Colors.Message)
 	E.Ui.WarningStyle(E.Colors.Warning)
 
+	E.Ui.EventHandler(func(ev ui.Event) {
+		Event(&E, ev)
+	})
+
 	E.Ui.Start(func(s *ui.State) {
 		var scratch *FileBuffer
 		if debug {
 			scratch = E.NewBuffer(debugScratchString, "//scratch")
 		} else {
 			scratch = E.NewBuffer(scratchString, "//scratch")
+			// TODO: Proper interface for moving the cursor.
 			scratch.editors[0].cursors[0].Begin = 109
 			scratch.editors[0].cursors[0].End = 110
 		}
 		bufToOpen := scratch
 
+		erroedOpening := false
 		for _, file := range flag.Args() {
 			newBuffer, err := E.Open(file)
 			if err != nil {
-				E.Log(err.Error())
+				erroedOpening = true
+				E.LogError(err.Error())
 			} else {
+				E.Log(fmt.Sprintf("opened file %v", newBuffer.Name()))
 				if bufToOpen == scratch {
 					bufToOpen = newBuffer
 				}
 			}
 		}
 
-		s.Editor = bufToOpen.editors[0]
-		s.Minibuffer = E.Minibuffer.Editor
+		s.Editor = bufToOpen.Editors()[0]
+		s.Minibuffer = E.Minibuffer.Editor()
+		s.Focus(s.Editor)
+		E.focus = bufToOpen.Editors()[0]
 
-		if len(E.Logbuffer) != 0 {
-			s.Warning = "Failed to open files from command line. Check logs."
+		if erroedOpening {
+			s.Warning = "Failed to open files from command line."
 		}
 	})
 }
