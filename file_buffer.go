@@ -3,7 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 
 	"github.com/deadpixi/rope"
 )
@@ -13,6 +15,11 @@ type FileBuffer struct {
 	editors []*Editor
 	content rope.Rope
 	lines   int
+	ioLock  sync.Mutex
+}
+
+func (fb *FileBuffer) Name() string {
+	return fb.name
 }
 
 func NewFileBuffer(name, content string) (fb *FileBuffer) {
@@ -36,6 +43,19 @@ func NewFileBuffer(name, content string) (fb *FileBuffer) {
 func (b *FileBuffer) TrySave() error {
 	if strings.HasPrefix(b.name, "//") {
 		return fmt.Errorf("cannot save virtual file %v", b.name)
+	}
+
+	b.ioLock.Lock()
+	defer b.ioLock.Unlock()
+
+	f, err := os.Create(b.name)
+	if err != nil {
+		return fmt.Errorf("cannot save file %v: %v", b.name, err)
+	}
+
+	_, err = f.WriteString(b.content.String())
+	if err != nil {
+		return fmt.Errorf("cannot write to file %v: %v", b.name, err)
 	}
 
 	return nil

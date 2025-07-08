@@ -63,21 +63,23 @@ func (e *Editor) AddCursor(cursor Cursor) {
 }
 
 func (e *Editor) RuneEntered(re *ui.RuneEntered) {
-	var buffer [4]byte
-	slice := buffer[:]
-	size := utf8.EncodeRune(slice, re.Rune)
+	// The function is inside the Update as to not cause race conditions in the
+	// insertion.
+	E.Ui.Update(func(_ *ui.State) {
+		var buffer [4]byte
+		slice := buffer[:]
+		size := utf8.EncodeRune(slice, re.Rune)
 
-	for _, byte := range slice[:size] {
-		for i := range e.cursors {
-			e.buffer.Insert(e.cursors[i].Begin, byte)
-			for j := range e.cursors[i:] {
-				e.cursors[j].Begin++
-				e.cursors[j].End++
+		for _, byte := range slice[:size] {
+			for i := range e.cursors {
+				e.buffer.Insert(e.cursors[i].Begin, byte)
+				for j := range e.cursors[i:] {
+					e.cursors[j].Begin++
+					e.cursors[j].End++
+				}
 			}
 		}
-	}
-
-	E.Ui.Update(func(_ *ui.State) {})
+	})
 }
 
 func (e *Editor) KeyEvent(key *ui.KeyPress) {
@@ -91,30 +93,39 @@ func (e *Editor) KeyEvent(key *ui.KeyPress) {
 
 func (e *Editor) save() {
 	if fb, ok := e.buffer.(*FileBuffer); ok {
+		E.Ui.Update(func(s *ui.State) {
+			s.Message = fmt.Sprintf("Saving buffer %v...", fb.Name())
+		})
 		if err := fb.TrySave(); err != nil {
 			E.Ui.Update(func(s *ui.State) {
-				s.Message = fmt.Sprintf("Error: %v", err)
+				s.Warning = fmt.Sprintf("Error: %v", err)
+			})
+		} else {
+			E.Ui.Update(func(s *ui.State) {
+				s.Message = fmt.Sprintf("Saved buffer %v", fb.Name())
 			})
 		}
 	} else {
 		E.Ui.Update(func(s *ui.State) {
-			s.Message = "Error: cannot save non-file buffer."
+			s.Warning = "Error: cannot save non-file buffer."
 		})
 	}
 }
 
 func (e *Editor) backspace() {
-	for i := range e.cursors {
-		if e.cursors[i].Begin > 0 {
-			e.buffer.Delete(e.cursors[i].Begin - 1)
-			for j := range e.cursors[i+1:] {
-				e.cursors[j].Begin--
-				e.cursors[j].End--
+	// The function is inside the Update as to not cause race conditions in the
+	// deletion.
+	E.Ui.Update(func(_ *ui.State) {
+		for i := range e.cursors {
+			if e.cursors[i].Begin > 0 {
+				e.buffer.Delete(e.cursors[i].Begin - 1)
+				for j := range e.cursors[i:] {
+					e.cursors[j].Begin--
+					e.cursors[j].End--
+				}
 			}
 		}
-	}
-
-	E.Ui.Update(func(_ *ui.State) {})
+	})
 }
 
 func (e *Editor) VirtualScreen(width, height int, focus bool) ui.VirtualEditorScreen {
@@ -173,6 +184,15 @@ func (e *Editor) render(focus bool) {
 		lineNumWidth = max(int(math.Log10(float64(e.firstLine+height)))+1, 5)
 	}
 
+	// Set style for number column.
+	if e.NumberColumn {
+		for h := range height {
+			for i := range lineNumWidth {
+				e.vs[h][i].Style = e.NumberColumnStyle
+			}
+		}
+	}
+
 	// Compute max width
 	maxWidth := width
 	if e.TextWidth != 0 {
@@ -182,105 +202,91 @@ func (e *Editor) render(focus bool) {
 	curx := 0
 	cury := 0
 	disp := e.disp
-	line := e.firstLine + 1
-
+	line := e.firstLine
 	continuing := false
-	end := false
 
 	r, newDisp := getRune(e.buffer, disp)
-	if newDisp == disp {
-		end = true
-	}
-
-line:
-	for cury < height {
-		// Render line numbers or line continuations.
-		if e.NumberColumn {
-			if continuing {
-				for curx < lineNumWidth {
-					e.vs[cury][curx].Style = e.NumberColumnStyle
-					curx++
-				}
-			} else if end {
-				e.vs[cury][curx].Style = e.NumberColumnStyle
-				e.vs[cury][curx].Rune = '~'
-				curx++
-				for curx < lineNumWidth {
-					e.vs[cury][curx].Style = e.NumberColumnStyle
-					curx++
-				}
-				curx = 0
-				cury++
-				continue line
-			} else {
-				num := strconv.Itoa(line)
-				for curx < lineNumWidth-1-len(num) {
-					e.vs[cury][curx].Style = e.NumberColumnStyle
-					e.vs[cury][curx].Rune = ' '
-					curx++
-				}
-				for _, c := range num {
-					e.vs[cury][curx].Style = e.NumberColumnStyle
-					e.vs[cury][curx].Rune = c
-					curx++
-				}
-				e.vs[cury][curx].Style = e.NumberColumnStyle
-				curx++
-			}
-		}
-
-		for curx < maxWidth {
-			// Render cursors.
-			if focus {
-				for _, cursor := range e.cursors {
-					if disp >= cursor.Begin && disp < cursor.End {
-						e.vs[cury][curx].Style = e.CursorStyle
+	if disp != newDisp {
+	line:
+		for cury < height {
+			// Draw line numbers.
+			if e.NumberColumn {
+				if !continuing {
+					line++
+					num := strconv.Itoa(line)
+					curx += lineNumWidth - 1 - len(num)
+					for _, c := range num {
+						e.vs[cury][curx].Rune = c
+						curx++
 					}
+					curx++
+				} else {
+					continuing = false
+					curx += lineNumWidth
 				}
 			}
 
-			if r != 0 && r != '\t' && r != '\n' {
-				e.vs[cury][curx].Rune = r
-				curx++
-			} else if r == '\t' {
-				curx += e.TabSize - (curx-lineNumWidth)%e.TabSize
-			}
+			for {
+				if r != '\n' && r != 0 {
+					if curx >= maxWidth {
+						curx = 0
+						cury++
+						// Next iteration we'll use the same rune.
+						continuing = true
+						continue line
+					}
 
-			olddisp := disp
-			disp = newDisp
-			r, newDisp = getRune(e.buffer, disp)
-			if newDisp == disp {
-				end = true
-			}
-
-			if r == '\n' {
-				curx++
-				// Render cursors.
-				if focus {
-					for _, cursor := range e.cursors {
-						if olddisp >= cursor.Begin && olddisp < cursor.End {
-							e.vs[cury][curx].Style = e.CursorStyle
+					// Draw cursors.
+					if focus {
+						for _, c := range e.cursors {
+							if disp >= c.Begin && disp < c.End {
+								e.vs[cury][curx].Style = e.CursorStyle
+								break
+							}
 						}
 					}
+					if r != '\t' {
+						e.vs[cury][curx].Rune = r
+						curx++
+					} else {
+						curx += 8
+					}
+				} else if r == '\t' {
+					curx += 8
+				} else if r == '\n' {
+					// Draw cursors.
+					if curx < width && focus {
+						for _, c := range e.cursors {
+							if disp >= c.Begin && disp < c.End {
+								e.vs[cury][curx].Style = e.CursorStyle
+								break
+							}
+						}
+					}
+					curx = 0
+					cury++
+					disp = newDisp
+					r, newDisp = getRune(e.buffer, disp)
+					if disp == newDisp {
+						break line
+					}
+					continue line
+				} else {
+					curx++
 				}
-
-				line++
-				curx = 0
-				cury++
-				continuing = false
 
 				disp = newDisp
 				r, newDisp = getRune(e.buffer, disp)
-				if newDisp == disp {
-					end = true
+				if disp == newDisp {
+					break line
 				}
-
-				continue line
 			}
 		}
+	}
 
-		continuing = true
-		curx = 0
+	// Fill remaining lines with line ending.
+	for cury < height {
+		e.vs[cury][0].Rune = '~'
 		cury++
 	}
 

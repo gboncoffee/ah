@@ -18,6 +18,7 @@ type Colorscheme struct {
 	TextWidthColumn tcell.Style
 	Minibuffer      tcell.Style
 	Message         tcell.Style
+	Warning         tcell.Style
 }
 
 var E Haza
@@ -53,7 +54,8 @@ func (e *Haza) InitColors() {
 
 	e.Colors.Minibuffer = e.Colors.NumberColumn
 
-	e.Colors.Message = e.Colors.Minibuffer.Foreground(tcell.ColorRed)
+	e.Colors.Warning = e.Colors.Minibuffer.Foreground(tcell.ColorRed)
+	e.Colors.Message = e.Colors.Minibuffer
 }
 
 func (e *Haza) InitMinibuffer() {
@@ -67,7 +69,12 @@ func (e *Haza) Log(msg string) {
 func (e *Haza) Open(file string) (*FileBuffer, error) {
 	f, err := os.Open(file)
 	if err != nil {
-		return nil, err
+		if os.IsPermission(err) {
+			return nil, err
+		}
+
+		// Create an empty buffer as the file does not exists.
+		return e.NewBuffer("", file), nil
 	}
 	defer f.Close()
 

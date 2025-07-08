@@ -36,6 +36,7 @@ func main() {
 	E.InitMinibuffer()
 
 	E.Ui.MessageStyle(E.Colors.Message)
+	E.Ui.WarningStyle(E.Colors.Warning)
 
 	E.Ui.Start(func(s *ui.State) {
 		var scratch *FileBuffer
@@ -63,7 +64,7 @@ func main() {
 		s.Minibuffer = E.Minibuffer.Editor
 
 		if len(E.Logbuffer) != 0 {
-			s.Message = "Failed to open files from command line. Check logs."
+			s.Warning = "Failed to open files from command line. Check logs."
 		}
 	})
 }

@@ -11,6 +11,7 @@ type Ui struct {
 
 	defaultStyle tcell.Style
 	messageStyle tcell.Style
+	warningStyle tcell.Style
 }
 
 type mode int
@@ -101,4 +102,8 @@ func (ui *Ui) DefaultStyle(style tcell.Style) {
 
 func (ui *Ui) MessageStyle(style tcell.Style) {
 	ui.messageStyle = style
+}
+
+func (ui *Ui) WarningStyle(style tcell.Style) {
+	ui.warningStyle = style
 }
