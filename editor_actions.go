@@ -73,7 +73,7 @@ func (e *Editor) CursorLeft() {
 	// movement (yes that can actually happen).
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
-			if e.cursors[i].Begin >= 0 {
+			if e.cursors[i].Begin > 0 {
 				// The cursor collapses on movement.
 				e.cursors[i].Begin--
 				e.cursors[i].End = e.cursors[i].Begin + 1
@@ -88,7 +88,7 @@ func (e *Editor) CursorRight() {
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
 			// Check if there's something remaining in the buffer.
-			if _, err := e.buffer.Get(e.cursors[i].Begin + 1); err != nil {
+			if _, err := e.buffer.Get(e.cursors[i].Begin + 1); err == nil {
 				// The cursor collapses on movement.
 				e.cursors[i].Begin++
 				e.cursors[i].End = e.cursors[i].Begin + 1
