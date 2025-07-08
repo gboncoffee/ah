@@ -73,6 +73,12 @@ const (
 	KeyCtrlRightSq    Key = Key(tcell.KeyCtrlRightSq)
 	KeyCtrlCarat      Key = Key(tcell.KeyCtrlCarat)
 	KeyCtrlUnderscore Key = Key(tcell.KeyCtrlUnderscore)
+
+	KeyBackspace  Key = Key(tcell.KeyBS)
+	KeyTab        Key = Key(tcell.KeyTAB)
+	KeyEsc        Key = Key(tcell.KeyESC)
+	KeyEnter      Key = Key(tcell.KeyCR)
+	KeyBackspace2 Key = Key(tcell.KeyDEL)
 )
 
 type Event interface {
@@ -216,15 +222,27 @@ func EventFromTcell(ev tcell.Event) Event {
 
 func keypressFromTcell(e *tcell.EventKey) Event {
 	key := e.Key()
-	if key == tcell.KeyRune {
+	switch key {
+	case tcell.KeyRune:
 		return &RuneEntered{
 			underlying: e,
 			Rune:       e.Rune(),
 		}
-	}
-	return &KeyPress{
-		underlying: e,
-		Key:        Key(key),
+	case tcell.KeyEnter:
+		return &RuneEntered{
+			underlying: e,
+			Rune:       '\n',
+		}
+	case tcell.KeyTab:
+		return &RuneEntered{
+			underlying: e,
+			Rune:       '\t',
+		}
+	default:
+		return &KeyPress{
+			underlying: e,
+			Key:        Key(key),
+		}
 	}
 }
 

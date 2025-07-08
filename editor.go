@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"slices"
 	"strconv"
@@ -20,15 +21,25 @@ type Cursor struct {
 type Editor struct {
 	buffer               Buffer
 	cursors              []Cursor
+	masterCursor         *Cursor
 	firstLine            int
 	disp                 int
 	vs                   ui.VirtualEditorScreen
+	TabSize              int
 	TextWidth            int
 	NumberColumn         bool
 	DefaultStyle         *tcell.Style
 	NumberColumnStyle    *tcell.Style
 	CursorStyle          *tcell.Style
 	TextWidthColumnStyle *tcell.Style
+}
+
+func NewEditor(b Buffer) (e *Editor) {
+	e = new(Editor)
+	e.buffer = b
+	e.TabSize = 8
+
+	return
 }
 
 func (e *Editor) Event(event ui.Event) {
@@ -45,6 +56,7 @@ func (e *Editor) AddCursor(cursor Cursor) {
 	for i < len(e.cursors) {
 		if e.cursors[i].Begin >= cursor.Begin {
 			e.cursors = slices.Insert(e.cursors, i, cursor)
+			return
 		}
 	}
 	e.cursors = slices.Insert(e.cursors, i, cursor)
@@ -65,10 +77,44 @@ func (e *Editor) RuneEntered(re *ui.RuneEntered) {
 		}
 	}
 
-	UI.Update(func(_ *ui.State) {})
+	E.Ui.Update(func(_ *ui.State) {})
 }
 
 func (e *Editor) KeyEvent(key *ui.KeyPress) {
+	switch key.Key {
+	case ui.KeyCtrlS:
+		e.save()
+	case ui.KeyBackspace, ui.KeyBackspace2:
+		e.backspace()
+	}
+}
+
+func (e *Editor) save() {
+	if fb, ok := e.buffer.(*FileBuffer); ok {
+		if err := fb.TrySave(); err != nil {
+			E.Ui.Update(func(s *ui.State) {
+				s.Message = fmt.Sprintf("Error: %v", err)
+			})
+		}
+	} else {
+		E.Ui.Update(func(s *ui.State) {
+			s.Message = "Error: cannot save non-file buffer."
+		})
+	}
+}
+
+func (e *Editor) backspace() {
+	for i := range e.cursors {
+		if e.cursors[i].Begin > 0 {
+			e.buffer.Delete(e.cursors[i].Begin - 1)
+			for j := range e.cursors[i+1:] {
+				e.cursors[j].Begin--
+				e.cursors[j].End--
+			}
+		}
+	}
+
+	E.Ui.Update(func(_ *ui.State) {})
 }
 
 func (e *Editor) VirtualScreen(width, height int, focus bool) ui.VirtualEditorScreen {
@@ -136,7 +182,7 @@ func (e *Editor) render(focus bool) {
 	curx := 0
 	cury := 0
 	disp := e.disp
-	line := e.firstLine
+	line := e.firstLine + 1
 
 	continuing := false
 	end := false
@@ -193,10 +239,34 @@ line:
 				}
 			}
 
+			if r != 0 && r != '\t' && r != '\n' {
+				e.vs[cury][curx].Rune = r
+				curx++
+			} else if r == '\t' {
+				curx += e.TabSize - (curx-lineNumWidth)%e.TabSize
+			}
+
+			olddisp := disp
+			disp = newDisp
+			r, newDisp = getRune(e.buffer, disp)
+			if newDisp == disp {
+				end = true
+			}
+
 			if r == '\n' {
+				curx++
+				// Render cursors.
+				if focus {
+					for _, cursor := range e.cursors {
+						if olddisp >= cursor.Begin && olddisp < cursor.End {
+							e.vs[cury][curx].Style = e.CursorStyle
+						}
+					}
+				}
+
 				line++
-				cury++
 				curx = 0
+				cury++
 				continuing = false
 
 				disp = newDisp
@@ -206,18 +276,6 @@ line:
 				}
 
 				continue line
-			}
-
-			if r != 0 {
-				e.vs[cury][curx].Rune = r
-			}
-
-			curx++
-
-			disp = newDisp
-			r, newDisp = getRune(e.buffer, disp)
-			if newDisp == disp {
-				end = true
 			}
 		}
 

@@ -2,34 +2,67 @@ package main
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/deadpixi/rope"
 )
 
 type FileBuffer struct {
-	Name    string
-	Editors []*Editor
+	name    string
+	editors []*Editor
 	content rope.Rope
 	lines   int
 }
 
+func NewFileBuffer(name, content string) (fb *FileBuffer) {
+	if len(content) < 1 || content[len(content)-1] != '\n' {
+		content += string('\n')
+	}
+
+	fb = new(FileBuffer)
+	fb.name = name
+	fb.content = rope.NewString(content)
+
+	for _, c := range content {
+		if c == '\n' {
+			fb.lines++
+		}
+	}
+
+	return
+}
+
+func (b *FileBuffer) TrySave() error {
+	if strings.HasPrefix(b.name, "//") {
+		return fmt.Errorf("cannot save virtual file %v", b.name)
+	}
+
+	return nil
+}
+
 func (b *FileBuffer) NewEditor() (e *Editor) {
-	e = new(Editor)
-	e.buffer = b
+	e = NewEditor(b)
+
 	e.TextWidth = 80
 	e.NumberColumn = true
 
-	e.DefaultStyle = &COLORS.Default
-	e.NumberColumnStyle = &COLORS.NumberColumn
-	e.CursorStyle = &COLORS.Cursor
-	e.TextWidthColumnStyle = &COLORS.TextWidthColumn
+	e.DefaultStyle = &E.Colors.Default
+	e.NumberColumnStyle = &E.Colors.NumberColumn
+	e.CursorStyle = &E.Colors.Cursor
+	e.TextWidthColumnStyle = &E.Colors.TextWidthColumn
 
 	e.AddCursor(Cursor{Begin: 0, End: 1})
+
+	b.editors = append(b.editors, e)
 
 	return
 }
 
 func (b *FileBuffer) Insert(disp int, c byte) error {
+	if c == '\n' {
+		b.lines++
+	}
 	b.content = b.content.InsertString(disp, string(c))
 	return nil
 }
@@ -45,4 +78,10 @@ func (b *FileBuffer) Get(disp int) (byte, error) {
 	}
 
 	return buffer[0], nil
+}
+
+func (b *FileBuffer) Delete(disp int) error {
+	b.content = b.content.Delete(disp, 1)
+
+	return nil
 }

@@ -2,6 +2,7 @@ package main
 
 type Buffer interface {
 	Insert(disp int, b byte) error
+	Delete(disp int) error
 	Get(disp int) (byte, error)
 }
 

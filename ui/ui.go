@@ -10,6 +10,7 @@ type Ui struct {
 	exit    chan struct{}
 
 	defaultStyle tcell.Style
+	messageStyle tcell.Style
 }
 
 type mode int
@@ -77,7 +78,10 @@ func (ui *Ui) mainloop() {
 		case <-ui.exit:
 			return
 		case ev := <-input:
-			go ui.input(EventFromTcell(ev))
+			go func() {
+				defer ui.traceMeHarder(false)
+				ui.input(EventFromTcell(ev))
+			}()
 		}
 	}
 }
@@ -93,4 +97,8 @@ func (ui *Ui) Exit() {
 func (ui *Ui) DefaultStyle(style tcell.Style) {
 	ui.defaultStyle = style
 	ui.screen.SetStyle(ui.defaultStyle)
+}
+
+func (ui *Ui) MessageStyle(style tcell.Style) {
+	ui.messageStyle = style
 }

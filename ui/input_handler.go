@@ -26,7 +26,7 @@ func (ui *Ui) input(ev Event) {
 }
 
 func (ui *Ui) keypress(e *KeyPress) {
-	if e.Key == KeyCtrlC {
+	if e.Key == KeyCtrlQ {
 		ui.Exit()
 	}
 

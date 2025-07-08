@@ -1,8 +1,6 @@
 package main
 
-import (
-	"errors"
-)
+import "errors"
 
 type Minibuffer struct {
 	Prompt  string
@@ -12,13 +10,10 @@ type Minibuffer struct {
 
 func (m *Minibuffer) Init() {
 	m.Prompt = ""
-	m.Editor = &Editor{
-		buffer:       m,
-		cursors:      []Cursor{{Begin: 0, End: 1}},
-		NumberColumn: false,
-		DefaultStyle: &COLORS.Minibuffer,
-		CursorStyle:  &COLORS.Cursor,
-	}
+	m.Editor = NewEditor(m)
+	m.Editor.AddCursor(Cursor{Begin: 0, End: 1})
+	m.Editor.DefaultStyle = &E.Colors.Minibuffer
+	m.Editor.CursorStyle = &E.Colors.Cursor
 }
 
 func (b *Minibuffer) Insert(disp int, c byte) error {
@@ -35,4 +30,19 @@ func (b *Minibuffer) Get(disp int) (byte, error) {
 	}
 
 	return b.Content[disp], nil
+}
+
+func (b *Minibuffer) Delete(disp int) error {
+	if disp >= len(b.Content) {
+		return errors.New("index out of range")
+	}
+
+	if disp < len(b.Content)-1 {
+		b.Content = b.Content[:disp] + b.Content[disp:]
+		return nil
+	}
+
+	b.Content = b.Content[:disp]
+
+	return nil
 }
