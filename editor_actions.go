@@ -2,30 +2,13 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"unicode/utf8"
 
 	"github.com/gboncoffee/ah/ui"
 )
 
-func (e *Editor) RuneEntered(re rune) {
-	// The function is inside the Update as to not cause race conditions in the
-	// insertion.
-	E.Ui.Update(func(_ *ui.State) {
-		var buffer [4]byte
-		slice := buffer[:]
-		size := utf8.EncodeRune(slice, re)
-
-		for _, byte := range slice[:size] {
-			for i := range e.cursors {
-				e.buffer.Insert(e.cursors[i].Begin, byte)
-				for j := range e.cursors[i:] {
-					e.cursors[j].Begin++
-					e.cursors[j].End++
-				}
-			}
-		}
-	})
-}
+// TODO: rewrite most of this with the new rune-addressable rope.
 
 func (e *Editor) Save() {
 	if fb, ok := e.buffer.(*FileBuffer); ok {
@@ -48,51 +31,163 @@ func (e *Editor) Save() {
 	}
 }
 
-func (e *Editor) Backspace() {
-	// The function is inside the Update as to not cause race conditions in the
-	// deletion.
+//
+// Most (actual) functions are inside update as to not cause race conditions.
+//
+
+func (e *Editor) normalized(c Cursor) bool {
+	begin, err := e.buffer.Get(c.Begin)
+	if err != nil {
+		return false
+	}
+	end, err := e.buffer.Get(c.End)
+	return utf8.RuneStart(begin) && (err != nil || utf8.RuneStart(end))
+}
+
+func (e *Editor) normalize(c Cursor) Cursor {
+	r, err := e.buffer.Get(c.Begin)
+	for err == nil && !utf8.RuneStart(r) {
+		c.Begin--
+		r, err = e.buffer.Get(c.Begin)
+	}
+
+	r, err = e.buffer.Get(c.End)
+	for err == nil && !utf8.RuneStart(r) {
+		c.End++
+		r, err = e.buffer.Get(c.End)
+	}
+
+	return c
+}
+
+func (e *Editor) normalizeCursorUp(c Cursor) Cursor {
+	r, err := e.buffer.Get(c.Begin)
+	for err == nil && !utf8.RuneStart(r) {
+		c.Begin++
+		r, err = e.buffer.Get(c.Begin)
+	}
+
+	r, err = e.buffer.Get(c.End)
+	for err == nil && !utf8.RuneStart(r) {
+		c.End++
+		r, err = e.buffer.Get(c.End)
+	}
+
+	return c
+}
+
+func (e *Editor) AddCursor(cursor Cursor) {
+	i := 0
+	for i < len(e.cursors) {
+		if e.cursors[i].Begin >= cursor.Begin {
+			e.cursors = slices.Insert(e.cursors, i, e.normalize(cursor))
+			return
+		}
+	}
+	e.cursors = slices.Insert(e.cursors, i, cursor)
+}
+
+func (e *Editor) RuneEntered(re rune) {
+	// The function is "utf8-unsafe" in the sense we're not strictly checking
+	// if the cursors will be normalized and stuff like that but I'm pretty sure
+	// this works. It's like using unsafe Rust. Or C++ without condoms.
+	E.Ui.Update(func(_ *ui.State) {
+		var buffer [4]byte
+		slice := buffer[:]
+		size := utf8.EncodeRune(slice, re)
+
+		for _, byte := range slice[:size] {
+			for i := range e.cursors {
+				e.buffer.Insert(e.cursors[i].Begin, byte)
+				for j := range e.cursors[i:] {
+					e.cursors[j].Begin++
+					e.cursors[j].End++
+				}
+			}
+		}
+	})
+}
+
+func (e *Editor) Delete() {
+	// This function is also "utf8-unsafe".
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
-			if e.cursors[i].Begin <= 0 {
-				continue
-			}
-			err := e.buffer.Delete(e.cursors[i].Begin - 1)
-			if err != nil {
-				continue
+			delRange := e.cursors[i].End - e.cursors[i].Begin
+			for range delRange {
+				e.buffer.Delete(e.cursors[i].Begin - 1)
 			}
 			for j := range e.cursors[i:] {
-				e.cursors[j].Begin--
-				e.cursors[j].End--
+				e.cursors[j].Begin -= delRange
+				e.cursors[j].End -= delRange
 			}
 		}
 	})
 }
 
 func (e *Editor) CursorLeft() {
-	// The function is inside the Update as to not cause race conditions in the
-	// movement (yes that can actually happen).
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
-			if e.cursors[i].Begin > 0 {
-				// The cursor collapses on movement.
-				e.cursors[i].Begin--
-				e.cursors[i].End = e.cursors[i].Begin + 1
-			}
+			e.cursors[i] = e.cursorLeft(e.cursors[i])
 		}
 	})
 }
 
+func (e *Editor) cursorLeft(c Cursor) Cursor {
+	c.Begin--
+	c.End = c.Begin + 1
+	c = e.normalize(c)
+	return c
+}
+
 func (e *Editor) CursorRight() {
-	// The function is inside the Update as to not cause race conditions in the
-	// movement (yes that can actually happen).
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
-			// Check if there's something remaining in the buffer.
-			if _, err := e.buffer.Get(e.cursors[i].Begin + 1); err == nil {
-				// The cursor collapses on movement.
-				e.cursors[i].Begin++
-				e.cursors[i].End = e.cursors[i].Begin + 1
-			}
+			e.cursors[i] = e.cursorRight(e.cursors[i])
 		}
 	})
+}
+
+func (e *Editor) cursorRight(c Cursor) Cursor {
+	c.Begin++
+	c.End = c.Begin + 1
+	c = e.normalizeCursorUp(c)
+	return c
+}
+
+func (e *Editor) gotoLineBegin(c Cursor) Cursor {
+	r, err := e.buffer.Get(c.Begin - 1)
+	for err == nil && r != '\n' {
+		c.Begin--
+		r, err = e.buffer.Get(c.Begin - 1)
+	}
+	c.End = c.Begin + 1
+	return e.normalize(c)
+}
+
+func (e *Editor) goRightUntilDispOrEol(c Cursor, disp int) Cursor {
+	return c
+}
+
+func (e *Editor) CursorUp() {
+	E.Ui.Update(func(_ *ui.State) {
+		for i := range e.cursors {
+			e.cursors[i] = e.cursorUp(e.cursors[i])
+		}
+	})
+}
+
+func (e *Editor) cursorUp(c Cursor) Cursor {
+	return c
+}
+
+func (e *Editor) CursorDown() {
+	E.Ui.Update(func(_ *ui.State) {
+		for i := range e.cursors {
+			e.cursors[i] = e.cursorDown(e.cursors[i])
+		}
+	})
+}
+
+func (e *Editor) cursorDown(c Cursor) Cursor {
+	return c
 }

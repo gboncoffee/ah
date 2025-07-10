@@ -2,7 +2,6 @@ package main
 
 import (
 	"math"
-	"slices"
 	"strconv"
 	"unicode/utf8"
 
@@ -41,17 +40,6 @@ func NewEditor(b Buffer) (e *Editor) {
 	return
 }
 
-func (e *Editor) AddCursor(cursor Cursor) {
-	i := 0
-	for i < len(e.cursors) {
-		if e.cursors[i].Begin >= cursor.Begin {
-			e.cursors = slices.Insert(e.cursors, i, cursor)
-			return
-		}
-	}
-	e.cursors = slices.Insert(e.cursors, i, cursor)
-}
-
 func (e *Editor) VirtualScreen(width, height int, focus bool) ui.VirtualEditorScreen {
 	if e.vs != nil && len(e.vs[0]) == width && len(e.vs) == height {
 		e.render(focus)
@@ -88,38 +76,80 @@ func getRune(b Buffer, disp int) (r rune, newDisp int) {
 	return r, disp + size
 }
 
-func (e *Editor) render(focus bool) {
-	width := len(e.vs[0])
-	height := len(e.vs)
+func (e *Editor) height() int {
+	return len(e.vs)
+}
 
-	// Fill default style and character.
+func (e *Editor) width() int {
+	return len(e.vs[0])
+}
+
+func (e *Editor) actualLineNumWidth() (w int) {
+	if e.NumberColumn {
+		w = max(int(math.Log10(float64(e.firstLine+e.height())))+1, 5)
+	}
+	return
+}
+
+func (e *Editor) fillBackground() {
 	for i := range e.vs {
 		for j := range e.vs[i] {
 			e.vs[i][j].Style = e.DefaultStyle
 			e.vs[i][j].Rune = ' '
 		}
 	}
+}
 
-	// Compute number column width.
-	lineNumWidth := 0
+func (e *Editor) fillLineNumStyle(width int) {
 	if e.NumberColumn {
-		lineNumWidth = max(int(math.Log10(float64(e.firstLine+height)))+1, 5)
-	}
-
-	// Set style for number column.
-	if e.NumberColumn {
-		for h := range height {
-			for i := range lineNumWidth {
+		for h := range e.height() {
+			for i := range width {
 				e.vs[h][i].Style = e.NumberColumnStyle
 			}
 		}
 	}
+}
 
-	// Compute max width
-	maxWidth := width
+func (e *Editor) maxWidth(lineNumWidth int) (w int) {
+	w = e.width()
 	if e.TextWidth != 0 {
-		maxWidth = min(width, lineNumWidth+e.TextWidth+1)
+		w = min(w, lineNumWidth+e.TextWidth+1)
 	}
+	return
+}
+
+func (e *Editor) drawLineNumber(line int, lineNumWidth int, cury int) {
+	num := strconv.Itoa(line)
+	curx := lineNumWidth - 1 - len(num)
+	for _, c := range num {
+		e.vs[cury][curx].Rune = c
+		curx++
+	}
+}
+
+func (e *Editor) drawCursors(focus bool, curx, cury, disp int) {
+	if focus {
+		for _, c := range e.cursors {
+			if disp >= c.Begin && disp < c.End {
+				e.vs[cury][curx].Style = e.CursorStyle
+				break
+			}
+		}
+	}
+}
+
+func (e *Editor) render(focus bool) {
+	width := e.width()
+	height := e.height()
+
+	e.fillBackground()
+
+	// Compute number column width.
+	lineNumWidth := e.actualLineNumWidth()
+
+	e.fillLineNumStyle(lineNumWidth)
+
+	maxWidth := e.maxWidth(lineNumWidth)
 
 	curx := 0
 	cury := 0
@@ -131,21 +161,13 @@ func (e *Editor) render(focus bool) {
 	if disp != newDisp {
 	line:
 		for cury < height {
-			// Draw line numbers.
 			if e.NumberColumn {
 				if !continuing {
 					line++
-					num := strconv.Itoa(line)
-					curx += lineNumWidth - 1 - len(num)
-					for _, c := range num {
-						e.vs[cury][curx].Rune = c
-						curx++
-					}
-					curx++
-				} else {
-					continuing = false
-					curx += lineNumWidth
+					e.drawLineNumber(line, lineNumWidth, cury)
 				}
+				curx = lineNumWidth
+				continuing = false
 			}
 
 			for {
@@ -158,33 +180,15 @@ func (e *Editor) render(focus bool) {
 						continue line
 					}
 
-					// Draw cursors.
-					if focus {
-						for _, c := range e.cursors {
-							if disp >= c.Begin && disp < c.End {
-								e.vs[cury][curx].Style = e.CursorStyle
-								break
-							}
-						}
-					}
+					e.drawCursors(focus, curx, cury, disp)
 					if r != '\t' {
 						e.vs[cury][curx].Rune = r
 						curx++
 					} else {
 						curx += 8
 					}
-				} else if r == '\t' {
-					curx += 8
 				} else if r == '\n' {
-					// Draw cursors.
-					if curx < width && focus {
-						for _, c := range e.cursors {
-							if disp >= c.Begin && disp < c.End {
-								e.vs[cury][curx].Style = e.CursorStyle
-								break
-							}
-						}
-					}
+					e.drawCursors(focus, curx, cury, disp)
 					curx = 0
 					cury++
 					disp = newDisp

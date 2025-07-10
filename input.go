@@ -18,7 +18,8 @@ func (e *Haza) KeyPress(key *ui.KeyPress) {
 	case ui.KeyCtrlS:
 		e.Save()
 	case ui.KeyBackspace, ui.KeyBackspace2:
-		e.focus.Backspace()
+		e.focus.CursorLeft()
+		e.focus.Delete()
 	case ui.KeyLeft:
 		e.focus.CursorLeft()
 	case ui.KeyRight:
