@@ -50,8 +50,8 @@ func main() {
 		} else {
 			scratch = E.NewBuffer(scratchString, "//scratch")
 			// TODO: Proper interface for moving the cursor.
-			scratch.editors[0].cursors[0].Begin = 109
-			scratch.editors[0].cursors[0].End = 110
+			scratch.editors[0].cursors[0].Begin = 105
+			scratch.editors[0].cursors[0].End = 106
 		}
 		bufToOpen := scratch
 

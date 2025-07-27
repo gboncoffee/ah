@@ -1,9 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"math"
 	"strconv"
-	"unicode/utf8"
 
 	"github.com/gboncoffee/ah/ui"
 
@@ -37,6 +37,11 @@ func NewEditor(b Buffer) (e *Editor) {
 	e.buffer = b
 	e.TabSize = 8
 
+	e.DefaultStyle = &E.Colors.Default
+	e.NumberColumnStyle = &E.Colors.NumberColumn
+	e.CursorStyle = &E.Colors.Cursor
+	e.TextWidthColumnStyle = &E.Colors.TextWidthColumn
+
 	return
 }
 
@@ -55,25 +60,6 @@ func (e *Editor) newVS(width, height int) {
 	for i := range e.vs {
 		e.vs[i] = make([]ui.VirtualRune, width)
 	}
-}
-
-// TODO: Make the render function less ugly. Holy fucking shit. It's just too
-// ugly. Please.
-
-func getRune(b Buffer, disp int) (r rune, newDisp int) {
-	var buffer [4]byte
-	firstByte, err := b.Get(disp)
-	if err != nil {
-		return ' ', disp
-	}
-	buffer[0] = firstByte
-	buffer[1], _ = b.Get(disp + 1)
-	buffer[2], _ = b.Get(disp + 2)
-	buffer[3], _ = b.Get(disp + 3)
-
-	var size int
-	r, size = utf8.DecodeRune(buffer[:])
-	return r, disp + size
 }
 
 func (e *Editor) height() int {
@@ -110,17 +96,12 @@ func (e *Editor) fillLineNumStyle(width int) {
 	}
 }
 
-func (e *Editor) maxWidth(lineNumWidth int) (w int) {
-	w = e.width()
-	if e.TextWidth != 0 {
-		w = min(w, lineNumWidth+e.TextWidth+1)
-	}
-	return
-}
-
 func (e *Editor) drawLineNumber(line int, lineNumWidth int, cury int) {
-	num := strconv.Itoa(line)
+	num := strconv.Itoa(line + 1)
 	curx := lineNumWidth - 1 - len(num)
+	if curx < 0 {
+		panic(fmt.Sprintf("lineNumWidth %v len(num) %v", lineNumWidth, len(num)))
+	}
 	for _, c := range num {
 		e.vs[cury][curx].Rune = c
 		curx++
@@ -139,17 +120,14 @@ func (e *Editor) drawCursors(focus bool, curx, cury, disp int) {
 }
 
 func (e *Editor) render(focus bool) {
-	width := e.width()
 	height := e.height()
+	width := e.width()
 
 	e.fillBackground()
 
 	// Compute number column width.
 	lineNumWidth := e.actualLineNumWidth()
-
 	e.fillLineNumStyle(lineNumWidth)
-
-	maxWidth := e.maxWidth(lineNumWidth)
 
 	curx := 0
 	cury := 0
@@ -157,69 +135,66 @@ func (e *Editor) render(focus bool) {
 	line := e.firstLine
 	continuing := false
 
-	r, newDisp := getRune(e.buffer, disp)
-	if disp != newDisp {
-	line:
-		for cury < height {
-			if e.NumberColumn {
-				if !continuing {
-					line++
-					e.drawLineNumber(line, lineNumWidth, cury)
+line:
+	for cury < height {
+		c, err := e.buffer.Get(disp)
+		if err != nil {
+			break line
+		}
+
+		// Draw line numbers.
+		if e.NumberColumn && !continuing {
+			e.drawLineNumber(line, lineNumWidth, cury)
+		}
+		curx += lineNumWidth
+		continuing = false
+
+		for {
+			e.vs[cury][curx].Rune = c
+			if e.TextWidth != 0 && curx-lineNumWidth == e.TextWidth {
+				e.vs[cury][curx].Style = e.TextWidthColumnStyle
+			}
+			e.drawCursors(focus, curx, cury, disp)
+
+			disp++
+
+			switch c {
+			case '\n':
+				// Maybe draw the text width line at the end.
+				if curx-lineNumWidth < e.TextWidth &&
+					e.TextWidth != 0 && lineNumWidth+e.TextWidth < width {
+					e.vs[cury][lineNumWidth+e.TextWidth].Style =
+						e.TextWidthColumnStyle
 				}
-				curx = lineNumWidth
-				continuing = false
+				cury++
+				curx = 0
+				line++
+				continue line
+			case '\t':
+				curx = lineNumWidth + (((curx-lineNumWidth)+8)/8)*8
+			default:
+				curx++
 			}
 
-			for {
-				if r != '\n' && r != 0 {
-					if curx >= maxWidth {
-						curx = 0
-						cury++
-						// Next iteration we'll use the same rune.
-						continuing = true
-						continue line
-					}
+			if curx >= width {
+				curx = 0
+				cury++
+				continuing = true
+				continue line
+			}
 
-					e.drawCursors(focus, curx, cury, disp)
-					if r != '\t' {
-						e.vs[cury][curx].Rune = r
-						curx++
-					} else {
-						curx += 8
-					}
-				} else if r == '\n' {
-					e.drawCursors(focus, curx, cury, disp)
-					curx = 0
-					cury++
-					disp = newDisp
-					r, newDisp = getRune(e.buffer, disp)
-					if disp == newDisp {
-						break line
-					}
-					continue line
-				} else {
-					curx++
-				}
-
-				disp = newDisp
-				r, newDisp = getRune(e.buffer, disp)
-				if disp == newDisp {
-					break line
-				}
+			c, err = e.buffer.Get(disp)
+			if err != nil {
+				cury++
+				break line
 			}
 		}
 	}
 
-	// Fill remaining lines with line ending.
+	// Fill eob.
 	for cury < height {
 		e.vs[cury][0].Rune = '~'
+		e.vs[cury][0].Style = e.NumberColumnStyle
 		cury++
-	}
-
-	// Fill text width column.
-	if maxWidth < width {
-		for h := range height {
-			e.vs[h][maxWidth].Style = e.TextWidthColumnStyle
-		}
 	}
 }

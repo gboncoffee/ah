@@ -1,19 +1,18 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
 
-	"github.com/deadpixi/rope"
+	"github.com/gboncoffee/ah/buffer"
 )
 
 type FileBuffer struct {
 	name    string
 	editors []*Editor
-	content rope.Rope
+	content *buffer.Buffer
 	lines   int
 	ioLock  sync.Mutex
 }
@@ -29,7 +28,7 @@ func NewFileBuffer(name, content string) (fb *FileBuffer) {
 
 	fb = new(FileBuffer)
 	fb.name = name
-	fb.content = rope.NewString(content)
+	fb.content = buffer.FromString(content)
 
 	for _, c := range content {
 		if c == '\n' {
@@ -71,11 +70,6 @@ func (b *FileBuffer) NewEditor() (e *Editor) {
 	e.TextWidth = 80
 	e.NumberColumn = true
 
-	e.DefaultStyle = &E.Colors.Default
-	e.NumberColumnStyle = &E.Colors.NumberColumn
-	e.CursorStyle = &E.Colors.Cursor
-	e.TextWidthColumnStyle = &E.Colors.TextWidthColumn
-
 	e.AddCursor(Cursor{Begin: 0, End: 1})
 
 	b.editors = append(b.editors, e)
@@ -83,29 +77,22 @@ func (b *FileBuffer) NewEditor() (e *Editor) {
 	return
 }
 
-func (b *FileBuffer) Insert(disp int, c byte) error {
-	if c == '\n' {
+func (b *FileBuffer) Insert(idx int, r rune) error {
+	if r == '\n' {
 		b.lines++
 	}
-	b.content = b.content.InsertString(disp, string(c))
+	b.content.Insert(idx, r)
 	return nil
 }
 
-func (b *FileBuffer) Get(disp int) (byte, error) {
-	var buffer [1]byte
-	n, err := b.content.ReadAt(buffer[:], int64(disp))
-	if err != nil {
-		return 0, err
-	}
-	if n != 1 {
-		return 0, errors.New("nothing to read")
-	}
-
-	return buffer[0], nil
+func (b *FileBuffer) Get(idx int) (rune, error) {
+	return b.content.Get(idx)
 }
 
-func (b *FileBuffer) Delete(disp int) error {
-	b.content = b.content.Delete(disp, 1)
+func (b *FileBuffer) Delete(idx int) error {
+	return b.content.Delete(idx)
+}
 
-	return nil
+func (b *FileBuffer) Size() int {
+	return b.content.Size()
 }

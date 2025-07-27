@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"slices"
-	"unicode/utf8"
 
 	"github.com/gboncoffee/ah/ui"
 )
@@ -35,52 +34,11 @@ func (e *Editor) Save() {
 // Most (actual) functions are inside update as to not cause race conditions.
 //
 
-func (e *Editor) normalized(c Cursor) bool {
-	begin, err := e.buffer.Get(c.Begin)
-	if err != nil {
-		return false
-	}
-	end, err := e.buffer.Get(c.End)
-	return utf8.RuneStart(begin) && (err != nil || utf8.RuneStart(end))
-}
-
-func (e *Editor) normalize(c Cursor) Cursor {
-	r, err := e.buffer.Get(c.Begin)
-	for err == nil && !utf8.RuneStart(r) {
-		c.Begin--
-		r, err = e.buffer.Get(c.Begin)
-	}
-
-	r, err = e.buffer.Get(c.End)
-	for err == nil && !utf8.RuneStart(r) {
-		c.End++
-		r, err = e.buffer.Get(c.End)
-	}
-
-	return c
-}
-
-func (e *Editor) normalizeCursorUp(c Cursor) Cursor {
-	r, err := e.buffer.Get(c.Begin)
-	for err == nil && !utf8.RuneStart(r) {
-		c.Begin++
-		r, err = e.buffer.Get(c.Begin)
-	}
-
-	r, err = e.buffer.Get(c.End)
-	for err == nil && !utf8.RuneStart(r) {
-		c.End++
-		r, err = e.buffer.Get(c.End)
-	}
-
-	return c
-}
-
 func (e *Editor) AddCursor(cursor Cursor) {
 	i := 0
 	for i < len(e.cursors) {
 		if e.cursors[i].Begin >= cursor.Begin {
-			e.cursors = slices.Insert(e.cursors, i, e.normalize(cursor))
+			e.cursors = slices.Insert(e.cursors, i, cursor)
 			return
 		}
 	}
@@ -92,17 +50,11 @@ func (e *Editor) RuneEntered(re rune) {
 	// if the cursors will be normalized and stuff like that but I'm pretty sure
 	// this works. It's like using unsafe Rust. Or C++ without condoms.
 	E.Ui.Update(func(_ *ui.State) {
-		var buffer [4]byte
-		slice := buffer[:]
-		size := utf8.EncodeRune(slice, re)
-
-		for _, byte := range slice[:size] {
-			for i := range e.cursors {
-				e.buffer.Insert(e.cursors[i].Begin, byte)
-				for j := range e.cursors[i:] {
-					e.cursors[j].Begin++
-					e.cursors[j].End++
-				}
+		for i := range e.cursors {
+			e.buffer.Insert(e.cursors[i].Begin, re)
+			for j := range e.cursors[i:] {
+				e.cursors[j].Begin++
+				e.cursors[j].End++
 			}
 		}
 	})
@@ -133,9 +85,11 @@ func (e *Editor) CursorLeft() {
 }
 
 func (e *Editor) cursorLeft(c Cursor) Cursor {
-	c.Begin--
+	if c.Begin > 0 {
+		c.Begin--
+	}
 	c.End = c.Begin + 1
-	c = e.normalize(c)
+
 	return c
 }
 
@@ -148,9 +102,11 @@ func (e *Editor) CursorRight() {
 }
 
 func (e *Editor) cursorRight(c Cursor) Cursor {
-	c.Begin++
+	if c.Begin+1 < e.buffer.Size() {
+		c.Begin++
+	}
 	c.End = c.Begin + 1
-	c = e.normalizeCursorUp(c)
+
 	return c
 }
 
@@ -161,7 +117,7 @@ func (e *Editor) gotoLineBegin(c Cursor) Cursor {
 		r, err = e.buffer.Get(c.Begin - 1)
 	}
 	c.End = c.Begin + 1
-	return e.normalize(c)
+	return c
 }
 
 func (e *Editor) goRightUntilDispOrEol(c Cursor, disp int) Cursor {

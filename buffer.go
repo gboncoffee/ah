@@ -1,9 +1,10 @@
 package main
 
 type Buffer interface {
-	Insert(disp int, b byte) error
-	Delete(disp int) error
-	Get(disp int) (byte, error)
+	Insert(idx int, r rune) error
+	Delete(idx int) error
+	Get(idx int) (rune, error)
+	Size() int
 }
 
 type BufferReader struct {
@@ -11,7 +12,7 @@ type BufferReader struct {
 	disp   int
 }
 
-func (r *BufferReader) Read(out []byte) (int, error) {
+func (r *BufferReader) Read(out []rune) (int, error) {
 	i := 0
 	for i = range out {
 		b, err := r.buffer.Get(r.disp)
