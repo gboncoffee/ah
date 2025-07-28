@@ -88,8 +88,9 @@ func (b *Buffer) Insert(idx int, r rune) error {
 		ed = &b.edits[len(b.edits)-1]
 	} else {
 		ed = &b.edits[len(b.edits)-1]
-		if ed.deletion || ed.piece != piec {
+		if ed.deletion || ed.piece != piec || disp != piec.length {
 			b.edits = append(b.edits, newEdit)
+			ed = &b.edits[len(b.edits)-1]
 		}
 	}
 
@@ -146,10 +147,6 @@ func (b *Buffer) Insert(idx int, r rune) error {
 	return nil
 }
 
-func (b *Buffer) pieceContent(p piece) []rune {
-	return b.buffers[p.buffer][p.start : p.start+p.length]
-}
-
 func (b *Buffer) findPieceWithIdx(idx int) (i int, d int, err error) {
 	disp := 0
 	for i, piece := range b.pieces {
@@ -176,23 +173,37 @@ func (b *Buffer) findPieceForInsertion(idx int) (i int, d int, err error) {
 	return 0, 0, errors.New("out of bounds")
 }
 
-func (b *Buffer) indexByPiece(piec piece, disp int) rune {
-	// If the piece indexes the first buffer, we cannot index directly because
-	// it's not guaranteed to have cap(bufferSize).
-	if piec.buffer == 0 {
-		if piec.start+disp < len(b.buffers[0]) {
-			return b.buffers[0][piec.start+disp]
+func (b *Buffer) pieceContent(p piece) []rune {
+	arr := make([]rune, 0, p.length)
+	buf := p.buffer
+	bdisp := p.start
+	for range p.length {
+		if bdisp >= len(b.buffers[buf]) {
+			bdisp = 0
+			buf++
 		}
-		piec.buffer = 1
-		piec.length -= len(b.buffers[0])
-		disp -= len(b.buffers[0])
-		piec.start = 0
+		arr = append(arr, b.buffers[buf][bdisp])
+		bdisp++
+	}
+	return arr
+}
+
+func (b *Buffer) indexByPiece(p piece, d int) rune {
+	// If in the first (piece) buffer.
+	if p.start+d < len(b.buffers[p.buffer]) {
+		return b.buffers[p.buffer][d+p.start]
 	}
 
-	buf := piec.buffer + disp/bufferSize
-	disp %= bufferSize
-
-	return b.buffers[buf][disp]
+	disp := len(b.buffers[p.buffer]) - p.start
+	buf := p.buffer + 1
+	for {
+		newdisp := disp + len(b.buffers[buf])
+		if newdisp > d {
+			return b.buffers[buf][newdisp-d]
+		}
+		buf++
+		disp = newdisp
+	}
 }
 
 func (b *Buffer) Get(idx int) (rune, error) {
