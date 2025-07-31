@@ -3,7 +3,6 @@ module github.com/gboncoffee/ah
 go 1.24.0
 
 require (
-	github.com/deadpixi/rope v0.1.3
 	github.com/gdamore/tcell/v2 v2.8.1
 )
 

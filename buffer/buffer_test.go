@@ -1,6 +1,14 @@
 package buffer
 
-import "testing"
+import (
+	_ "embed"
+	"math/rand"
+	"slices"
+	"testing"
+)
+
+//go:embed os-lusíadas.txt
+var bigString string
 
 const testString = `Here's some...
 NewJeans for testing UTF-8:
@@ -200,4 +208,59 @@ func TestSplitLastInsertion(t *testing.T) {
 	expected := "hel12ABC34lo"
 	helperTestContent(t, b, expected, 5, 2)
 	helperTestIndexing(t, b, expected)
+}
+
+func FuzzEditing(f *testing.F) {
+	reference := make([]rune, 0, len(bigString))
+	for _, c := range bigString {
+		reference = append(reference, c)
+	}
+
+	b := FromString(bigString)
+
+	// Source random test cases. We add a 80% chance of the editing being made
+	// in the last editing hunk to simulate real use cases.
+	position := uint8(rand.Intn(len(bigString)))
+	delete := rand.Intn(2) == 0
+	for range 1000 {
+		randomRune := rune(rand.Uint32())
+		if rand.Intn(100) < 79 {
+			if delete && position > 0 {
+				position--
+			} else if !delete && int(position) < len(bigString)-1 {
+				position++
+			}
+			f.Add(position, randomRune, delete)
+		} else {
+			position = uint8(rand.Intn(len(bigString)))
+			delete = rand.Intn(2) == 0
+			f.Add(position, randomRune, delete)
+		}
+	}
+
+	f.Fuzz(func(t *testing.T, position uint8, r rune, delete bool) {
+		t.Logf("testing (delete: %v) at %v (rune %v)", delete, position, r)
+		if delete {
+			reference = slices.Delete(reference, int(position), int(position)+1)
+			b.Delete(int(position))
+		} else {
+			reference = slices.Insert(reference, int(position), r)
+			b.Insert(int(position), r)
+		}
+
+		for i, r := range reference {
+			c, err := b.Get(i)
+			if err != nil {
+				t.Fatalf("get failed: %v", err)
+			}
+			if c != r {
+				t.Fatalf(
+					"content doesn't match at %v: %v (expected %v)",
+					i,
+					c,
+					r,
+				)
+			}
+		}
+	})
 }

@@ -188,10 +188,10 @@ func (b *Buffer) pieceContent(p piece) []rune {
 	return arr
 }
 
-func (b *Buffer) indexByPiece(p piece, d int) rune {
+func (b *Buffer) indexByPiece(p piece, d int) (buffer int, bdisp int) {
 	// If in the first (piece) buffer.
 	if p.start+d < len(b.buffers[p.buffer]) {
-		return b.buffers[p.buffer][d+p.start]
+		return p.buffer, d + p.start
 	}
 
 	disp := len(b.buffers[p.buffer]) - p.start
@@ -199,7 +199,7 @@ func (b *Buffer) indexByPiece(p piece, d int) rune {
 	for {
 		newdisp := disp + len(b.buffers[buf])
 		if newdisp > d {
-			return b.buffers[buf][newdisp-d]
+			return buf, newdisp - d
 		}
 		buf++
 		disp = newdisp
@@ -212,10 +212,72 @@ func (b *Buffer) Get(idx int) (rune, error) {
 		return ' ', err
 	}
 
-	return b.indexByPiece(b.pieces[piec], disp), nil
+	buf, d := b.indexByPiece(b.pieces[piec], disp)
+	return b.buffers[buf][d], nil
 }
 
 func (b *Buffer) Delete(idx int) error {
+	pidx, disp, err := b.findPieceWithIdx(idx)
+	if err != nil {
+		return err
+	}
+
+	piec := b.pieces[pidx]
+
+	buffer, _ := b.indexByPiece(b.pieces[pidx], disp)
+
+	var ed *edit
+	newEdit := edit{deletion: true, piece: piece{
+		buffer: buffer,
+		start:  0,
+		length: 0,
+	}}
+	if len(b.edits) <= 0 {
+		b.edits = append(b.edits, newEdit)
+		ed = &b.edits[len(b.edits)-1]
+	} else {
+		ed = &b.edits[len(b.edits)-1]
+		// TODO.
+		if !ed.deletion {
+			b.edits = append(b.edits, newEdit)
+			ed = &b.edits[len(b.edits)-1]
+		}
+	}
+
+	switch disp {
+	// If removing from the top of the piece, we can simply decrease.
+	case piec.length - 1:
+		ed.piece.start--
+		ed.piece.length++
+		b.pieces[pidx].length--
+	// If removing from the beggining of the piece, we can simply increase the
+	// start.
+	case 0:
+		b.pieces[pidx].start++
+		b.pieces[pidx].length--
+
+		// If the piece begins at the end of the buffer.
+		if b.pieces[pidx].start == len(b.buffers[b.pieces[pidx].buffer]) {
+			b.pieces[pidx].buffer++
+			b.pieces[pidx].start = 0
+		}
+	default:
+		// If we need to split the piece, we insert to the right.
+		newb, newbdisp := b.indexByPiece(b.pieces[pidx], disp+1)
+		newPiece := piece{
+			buffer: newb,
+			start:  newbdisp,
+			length: b.pieces[pidx].length - (disp + 1),
+		}
+		b.pieces[pidx].length = disp
+		b.pieces = slices.Insert(b.pieces, pidx+1, newPiece)
+	}
+
+	// If the length of the piece now is 0, we can remove it.
+	if b.pieces[pidx].length == 0 {
+		b.pieces = slices.Delete(b.pieces, pidx, pidx+1)
+	}
+
 	return nil
 }
 
