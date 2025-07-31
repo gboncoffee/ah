@@ -2,7 +2,7 @@ package buffer
 
 import (
 	_ "embed"
-	"math/rand"
+	"math/rand/v2"
 	"slices"
 	"testing"
 )
@@ -210,7 +210,7 @@ func TestSplitLastInsertion(t *testing.T) {
 	helperTestIndexing(t, b, expected)
 }
 
-func FuzzEditing(f *testing.F) {
+func TestRandomEdits(t *testing.T) {
 	reference := make([]rune, 0, len(bigString))
 	for _, c := range bigString {
 		reference = append(reference, c)
@@ -218,34 +218,40 @@ func FuzzEditing(f *testing.F) {
 
 	b := FromString(bigString)
 
-	// Source random test cases. We add a 80% chance of the editing being made
-	// in the last editing hunk to simulate real use cases.
-	position := uint8(rand.Intn(len(bigString)))
-	delete := rand.Intn(2) == 0
+	// Use a custom rng with set seeds for determinism.
+	rng := rand.New(rand.NewPCG(420, 69))
+
+	// Slightly more change of inserting than deleting to make the buffer grow
+	// in the long run.
+	delete := rng.IntN(5) < 2
+	position := rng.IntN(len(reference))
+
 	for range 1000 {
-		randomRune := rune(rand.Uint32())
-		if rand.Intn(100) < 79 {
+		randomRune := rune(rng.Uint32())
+		if rng.IntN(100) < 79 {
 			if delete && position > 0 {
 				position--
-			} else if !delete && int(position) < len(bigString)-1 {
+			} else if !delete && int(position) < len(reference)-1 {
 				position++
 			}
-			f.Add(position, randomRune, delete)
 		} else {
-			position = uint8(rand.Intn(len(bigString)))
-			delete = rand.Intn(2) == 0
-			f.Add(position, randomRune, delete)
+			position = rng.IntN(len(reference))
+			delete = rng.IntN(5) < 2
 		}
-	}
 
-	f.Fuzz(func(t *testing.T, position uint8, r rune, delete bool) {
-		t.Logf("testing (delete: %v) at %v (rune %v)", delete, position, r)
+		// Test.
+		t.Logf(
+			"testing (delete %v) at %v for rune %v\n",
+			delete,
+			position,
+			randomRune,
+		)
 		if delete {
 			reference = slices.Delete(reference, int(position), int(position)+1)
 			b.Delete(int(position))
 		} else {
-			reference = slices.Insert(reference, int(position), r)
-			b.Insert(int(position), r)
+			reference = slices.Insert(reference, int(position), randomRune)
+			b.Insert(int(position), randomRune)
 		}
 
 		for i, r := range reference {
@@ -262,5 +268,5 @@ func FuzzEditing(f *testing.F) {
 				)
 			}
 		}
-	})
+	}
 }
