@@ -32,6 +32,18 @@ type edit struct {
 	deletion bool
 }
 
+func New[Content any]() *Buffer[Content] {
+	buffer := new(Buffer[Content])
+	buffer.buffers = make([][]Content, 1)
+	buffer.buffers[0] = make([]Content, 0, bufferSize)
+	buffer.pieces = append(buffer.pieces, piece{
+		buffer: 0,
+		start:  0,
+		length: 0,
+	})
+	return buffer
+}
+
 func FromString(content string) *Buffer[rune] {
 	buffer := new(Buffer[rune])
 	buffer.buffers = make([][]rune, 2)
@@ -88,6 +100,17 @@ func String(b *Buffer[rune]) string {
 	}
 
 	return builder.String()
+}
+
+func Content[Content any](b *Buffer[Content]) []Content {
+	content := make([]Content, 0, b.Size())
+
+	for _, piece := range b.pieces {
+		c := b.pieceContent(piece)
+		content = append(content, c...)
+	}
+
+	return content
 }
 
 func (b *Buffer[Content]) Insert(idx int, r Content) error {

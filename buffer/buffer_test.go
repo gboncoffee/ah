@@ -210,6 +210,24 @@ func TestSplitLastInsertion(t *testing.T) {
 	helperTestIndexing(t, b, expected)
 }
 
+func TestNew(t *testing.T) {
+	b := New[rune]()
+	helperInsertBeggining(b, "Hello, World!")
+	helperTestContent(t, b, "Hello, World!", 1, 1)
+}
+
+func TestFromSlice(t *testing.T) {
+	slice := make([]rune, 0, len(testString))
+	for _, c := range testString {
+		slice = append(slice, c)
+	}
+
+	bslice := FromSlice(slice)
+	bstring := FromString(testString)
+
+	helperTestContent(t, bslice, String(bstring), 1, 0)
+}
+
 func TestRandomEdits(t *testing.T) {
 	reference := make([]rune, 0, len(bigString))
 	for _, c := range bigString {
