@@ -1,18 +1,21 @@
+// Package buffer implements an efficient PieceTable generic buffer with
+// infinite undo/redo capabilities.
 package buffer
 
 import (
 	"errors"
+	"os"
 	"slices"
 	"strings"
 )
 
 // Using slices for representing pieces was kinda weird so I didn't.
 
-const bufferSize = 4096
+var bufferSize = os.Getpagesize()
 
-type Buffer struct {
+type Buffer[Content any] struct {
 	// The first buffer never changes and does not respect the buffer size.
-	buffers [][]rune
+	buffers [][]Content
 	pieces  []piece
 	edits   []edit
 	size    int // Cache
@@ -29,8 +32,8 @@ type edit struct {
 	deletion bool
 }
 
-func FromString(content string) *Buffer {
-	buffer := new(Buffer)
+func FromString(content string) *Buffer[rune] {
+	buffer := new(Buffer[rune])
 	buffer.buffers = make([][]rune, 2)
 
 	// We make Go alloc a sane amount of memory (may be up to 4x more than we
@@ -52,7 +55,28 @@ func FromString(content string) *Buffer {
 	return buffer
 }
 
-func (b *Buffer) String() string {
+func FromSlice[Content any](content []Content) *Buffer[Content] {
+	buffer := new(Buffer[Content])
+	buffer.buffers = make([][]Content, 2)
+
+	// Here the memory we alloc is exactly the needed.
+	buffer.buffers[0] = make([]Content, 0, len(content))
+	buffer.buffers[1] = make([]Content, 0, bufferSize)
+
+	for _, c := range content {
+		buffer.buffers[0] = append(buffer.buffers[0], c)
+		buffer.size++
+	}
+	buffer.pieces = append(buffer.pieces, piece{
+		buffer: 0,
+		start:  0,
+		length: len(buffer.buffers[0]),
+	})
+
+	return buffer
+}
+
+func String(b *Buffer[rune]) string {
 	var builder strings.Builder
 	builder.Grow((len(b.buffers)*(bufferSize-1) + len(b.buffers[0])) * 4)
 
@@ -66,7 +90,7 @@ func (b *Buffer) String() string {
 	return builder.String()
 }
 
-func (b *Buffer) Insert(idx int, r rune) error {
+func (b *Buffer[Content]) Insert(idx int, r Content) error {
 	pidx, disp, err := b.findPieceForInsertion(idx)
 	if err != nil {
 		return err
@@ -96,7 +120,7 @@ func (b *Buffer) Insert(idx int, r rune) error {
 
 	b.buffers[buffer] = append(b.buffers[buffer], r)
 	if len(b.buffers[buffer]) == bufferSize {
-		b.buffers = append(b.buffers, make([]rune, 0, bufferSize))
+		b.buffers = append(b.buffers, make([]Content, 0, bufferSize))
 	}
 
 	// If "appending" on the piece.
@@ -147,7 +171,7 @@ func (b *Buffer) Insert(idx int, r rune) error {
 	return nil
 }
 
-func (b *Buffer) findPieceWithIdx(idx int) (i int, d int, err error) {
+func (b *Buffer[Content]) findPieceWithIdx(idx int) (i int, d int, err error) {
 	disp := 0
 	for i, piece := range b.pieces {
 		ndisp := piece.length + disp
@@ -160,7 +184,7 @@ func (b *Buffer) findPieceWithIdx(idx int) (i int, d int, err error) {
 	return 0, 0, errors.New("out of bounds")
 }
 
-func (b *Buffer) findPieceForInsertion(idx int) (i int, d int, err error) {
+func (b *Buffer[Content]) findPieceForInsertion(idx int) (i int, d int, err error) {
 	disp := 0
 	for i, piece := range b.pieces {
 		ndisp := piece.length + disp
@@ -173,8 +197,8 @@ func (b *Buffer) findPieceForInsertion(idx int) (i int, d int, err error) {
 	return 0, 0, errors.New("out of bounds")
 }
 
-func (b *Buffer) pieceContent(p piece) []rune {
-	arr := make([]rune, 0, p.length)
+func (b *Buffer[Content]) pieceContent(p piece) []Content {
+	arr := make([]Content, 0, p.length)
 	buf := p.buffer
 	bdisp := p.start
 	for range p.length {
@@ -188,7 +212,7 @@ func (b *Buffer) pieceContent(p piece) []rune {
 	return arr
 }
 
-func (b *Buffer) indexByPiece(p piece, d int) (buffer int, bdisp int) {
+func (b *Buffer[Content]) indexByPiece(p piece, d int) (buffer int, bdisp int) {
 	// If in the first (piece) buffer.
 	if p.start+d < len(b.buffers[p.buffer]) {
 		return p.buffer, d + p.start
@@ -206,17 +230,18 @@ func (b *Buffer) indexByPiece(p piece, d int) (buffer int, bdisp int) {
 	}
 }
 
-func (b *Buffer) Get(idx int) (rune, error) {
+func (b *Buffer[Content]) Get(idx int) (Content, error) {
+	var zero Content
 	piec, disp, err := b.findPieceWithIdx(idx)
 	if err != nil {
-		return ' ', err
+		return zero, err
 	}
 
 	buf, d := b.indexByPiece(b.pieces[piec], disp)
 	return b.buffers[buf][d], nil
 }
 
-func (b *Buffer) Delete(idx int) error {
+func (b *Buffer[Content]) Delete(idx int) error {
 	pidx, disp, err := b.findPieceWithIdx(idx)
 	if err != nil {
 		return err
@@ -281,6 +306,6 @@ func (b *Buffer) Delete(idx int) error {
 	return nil
 }
 
-func (b *Buffer) Size() int {
+func (b *Buffer[Content]) Size() int {
 	return b.size
 }

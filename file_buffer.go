@@ -12,7 +12,7 @@ import (
 type FileBuffer struct {
 	name    string
 	editors []*Editor
-	content *buffer.Buffer
+	content *buffer.Buffer[rune]
 	lines   int
 	ioLock  sync.Mutex
 }
@@ -56,7 +56,7 @@ func (b *FileBuffer) TrySave() error {
 		return fmt.Errorf("cannot save file %v: %v", b.name, err)
 	}
 
-	_, err = f.WriteString(b.content.String())
+	_, err = f.WriteString(buffer.String(b.content))
 	if err != nil {
 		return fmt.Errorf("cannot write to file %v: %v", b.name, err)
 	}

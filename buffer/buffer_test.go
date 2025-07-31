@@ -22,13 +22,13 @@ Hype boy 내가 전해
 
 func TestFromString(t *testing.T) {
 	b := FromString(testString)
-	content := b.String()
+	content := String(b)
 	if content != testString {
 		t.Fatalf("content does not match:\n\n%v\n", content)
 	}
 }
 
-func helperTestIndexing(t *testing.T, b *Buffer, expected string) {
+func helperTestIndexing(t *testing.T, b *Buffer[rune], expected string) {
 	// We cannot use the index in the range because we need the index of the
 	// rune and not the byte index.
 	i := 0
@@ -54,7 +54,7 @@ func TestIndexingVirginBuffer(t *testing.T) {
 	helperTestIndexing(t, b, testString)
 }
 
-func helperInsertBeggining(b *Buffer, insert string) {
+func helperInsertBeggining(b *Buffer[rune], insert string) {
 	i := 0
 	for _, c := range insert {
 		b.Insert(i, c)
@@ -62,8 +62,8 @@ func helperInsertBeggining(b *Buffer, insert string) {
 	}
 }
 
-func helperTestContent(t *testing.T, b *Buffer, expected string, pieces int, edits int) {
-	content := b.String()
+func helperTestContent(t *testing.T, b *Buffer[rune], expected string, pieces int, edits int) {
+	content := String(b)
 	if content != expected {
 		t.Fatalf(
 			"content does not match:\n\n%v\n\nexpected:\n\n%v\n",
@@ -96,7 +96,7 @@ func TestInsertionBeggining(t *testing.T) {
 	helperTestIndexing(t, b, expected)
 }
 
-func helperInsertEnd(b *Buffer, insert string) {
+func helperInsertEnd(b *Buffer[rune], insert string) {
 	for _, c := range insert {
 		b.Insert(b.Size(), c)
 	}
@@ -113,7 +113,7 @@ func TestInsertionEnd(t *testing.T) {
 	helperTestIndexing(t, b, expected)
 }
 
-func helperInsertMiddle(b *Buffer, insert string, i int) {
+func helperInsertMiddle(b *Buffer[rune], insert string, i int) {
 	for _, c := range insert {
 		b.Insert(i, c)
 		i++
