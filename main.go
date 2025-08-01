@@ -40,7 +40,7 @@ func main() {
 	E.Ui.WarningStyle(E.Colors.Warning)
 
 	E.Ui.EventHandler(func(ev ui.Event) {
-		Event(&E, ev)
+		E.Event(ev)
 	})
 
 	E.Ui.Start(func(s *ui.State) {

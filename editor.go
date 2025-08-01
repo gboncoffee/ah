@@ -19,7 +19,6 @@ type Cursor struct {
 type Editor struct {
 	buffer               Buffer
 	cursors              []Cursor
-	masterCursor         *Cursor
 	firstLine            int
 	disp                 int
 	vs                   ui.VirtualEditorScreen
