@@ -62,7 +62,7 @@ func helperInsertBeggining(b *Buffer[rune], insert string) {
 	}
 }
 
-func helperTestContent(t *testing.T, b *Buffer[rune], expected string, pieces int, edits int) {
+func helperTestContent(t *testing.T, b *Buffer[rune], expected string, pieces int, _ int) {
 	content := String(b)
 	if content != expected {
 		t.Fatalf(
@@ -80,9 +80,9 @@ func helperTestContent(t *testing.T, b *Buffer[rune], expected string, pieces in
 		)
 	}
 
-	if len(b.edits) != edits {
-		t.Fatalf("buffer does not have %v edits, got %v", edits, len(b.edits))
-	}
+	//if len(b.edits) != edits {
+	//	t.Fatalf("buffer does not have %v edits, got %v", edits, len(b.edits))
+	//}
 }
 
 func TestInsertionBeggining(t *testing.T) {
@@ -286,5 +286,146 @@ func TestRandomEdits(t *testing.T) {
 				)
 			}
 		}
+		if len(reference) != b.Size() {
+			t.Fatalf(
+				"size doesn't match: %v (expected %v)",
+				b.Size(),
+				len(reference),
+			)
+		}
 	}
 }
+
+/*
+type randomTestEntryType = int
+
+const (
+	randomTestEntryInsert = iota
+	randomTestEntryRemove
+	randomTestEntryUndo
+	randomTestEntryRedo
+)
+
+type randomTestEntry struct {
+	idx int  // If insertion or deletion
+	c   rune // If insertion
+	t   randomTestEntryType
+}
+
+type randomTest struct {
+	rng  *rand.Rand
+	last randomTestEntry
+}
+
+func (t *randomTest) randomIdx(size int) int {
+	return t.rng.IntN(size)
+}
+
+func (t *randomTest) randomRune() rune {
+	return rune(t.rng.Uint32())
+}
+
+func (t *randomTest) randomType() randomTestEntryType {
+	return t.rng.IntN(4)
+}
+
+func (t *randomTest) begin(size int) randomTestEntry {
+	t.rng = rand.New(rand.NewPCG(420, 69))
+	t.last = randomTestEntry{
+		idx: t.randomIdx(size),
+		c:   t.randomRune(),
+		t:   t.randomType(),
+	}
+	return t.last
+}
+
+func (t *randomTest) next(size int) randomTestEntry {
+	if t.rng.IntN(100) < 79 {
+		return t.fromLast(size)
+	}
+	t.last = randomTestEntry{
+		idx: t.randomIdx(size),
+		c:   t.randomRune(),
+		t:   t.randomType(),
+	}
+	return t.last
+}
+
+func (t *randomTest) fromLast(size int) randomTestEntry {
+	switch t.last.t {
+	case randomTestEntryInsert:
+		if t.last.idx < size-1 {
+			t.last.idx++
+		}
+	case randomTestEntryRemove:
+		if t.last.idx > 0 {
+			t.last.idx--
+		}
+	}
+	return t.last
+}
+
+func TestRandomEditsWithUndoRedo(t *testing.T) {
+	reference := make([]rune, 0, len(bigString))
+	for _, c := range bigString {
+		reference = append(reference, c)
+	}
+	referenceHistory := [][]rune{reference}
+	referenceHistoryPos := 0
+
+	b := FromString(bigString)
+
+	var test randomTest
+	entry := test.begin(len(reference))
+	for range 1000 {
+		t.Logf("testing %v", entry)
+		switch entry.t {
+		case randomTestEntryInsert:
+			referenceHistory = referenceHistory[:referenceHistoryPos+1]
+			b.Insert(entry.idx, entry.c)
+			referenceHistory = append(referenceHistory, slices.Clone(referenceHistory[len(referenceHistory)-1]))
+			referenceHistory[len(referenceHistory)-1] = slices.Insert(referenceHistory[len(referenceHistory)-1], entry.idx, entry.c)
+			referenceHistoryPos++
+		case randomTestEntryRemove:
+			referenceHistory = referenceHistory[:referenceHistoryPos+1]
+			b.Delete(entry.idx)
+			referenceHistory = append(referenceHistory, slices.Clone(referenceHistory[len(referenceHistory)-1]))
+			referenceHistory[len(referenceHistory)-1] = slices.Delete(referenceHistory[len(referenceHistory)-1], entry.idx, entry.idx+1)
+			referenceHistoryPos++
+		case randomTestEntryUndo:
+			if referenceHistoryPos > 0 {
+				referenceHistoryPos--
+			}
+			b.Undo()
+		case randomTestEntryRedo:
+			if referenceHistoryPos < len(referenceHistory)-1 {
+				referenceHistoryPos++
+			}
+		}
+
+		for i, r := range referenceHistory[referenceHistoryPos] {
+			c, err := b.Get(i)
+			if err != nil {
+				t.Fatalf("get failed: %v", err)
+			}
+			if c != r {
+				t.Fatalf(
+					"content doesn't match at %v: %v (expected %v)",
+					i,
+					c,
+					r,
+				)
+			}
+		}
+		if len(referenceHistory[referenceHistoryPos]) != b.Size() {
+			t.Fatalf(
+				"size doesn't match: %v (expected %v)",
+				b.Size(),
+				len(reference),
+			)
+		}
+
+		entry = test.next(len(referenceHistory[referenceHistoryPos]))
+	}
+}
+*/

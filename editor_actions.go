@@ -7,8 +7,6 @@ import (
 	"github.com/gboncoffee/ah/ui"
 )
 
-// TODO: rewrite most of this with the new rune-addressable rope.
-
 func (e *Editor) Save() {
 	if fb, ok := e.buffer.(*FileBuffer); ok {
 		E.Ui.Update(func(s *ui.State) {
@@ -46,9 +44,6 @@ func (e *Editor) AddCursor(cursor Cursor) {
 }
 
 func (e *Editor) RuneEntered(re rune) {
-	// The function is "utf8-unsafe" in the sense we're not strictly checking
-	// if the cursors will be normalized and stuff like that but I'm pretty sure
-	// this works. It's like using unsafe Rust. Or C++ without condoms.
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
 			e.buffer.Insert(e.cursors[i].Begin, re)
@@ -61,7 +56,6 @@ func (e *Editor) RuneEntered(re rune) {
 }
 
 func (e *Editor) Delete() {
-	// This function is also "utf8-unsafe".
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
 			delRange := e.cursors[i].End - e.cursors[i].Begin
@@ -110,20 +104,6 @@ func (e *Editor) cursorRight(c Cursor) Cursor {
 	return c
 }
 
-func (e *Editor) gotoLineBegin(c Cursor) Cursor {
-	r, err := e.buffer.Get(c.Begin - 1)
-	for err == nil && r != '\n' {
-		c.Begin--
-		r, err = e.buffer.Get(c.Begin - 1)
-	}
-	c.End = c.Begin + 1
-	return c
-}
-
-func (e *Editor) goRightUntilDispOrEol(c Cursor, disp int) Cursor {
-	return c
-}
-
 func (e *Editor) CursorUp() {
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
@@ -133,7 +113,7 @@ func (e *Editor) CursorUp() {
 }
 
 func (e *Editor) cursorUp(c Cursor) Cursor {
-	return c
+	panic("todo")
 }
 
 func (e *Editor) CursorDown() {
@@ -145,5 +125,27 @@ func (e *Editor) CursorDown() {
 }
 
 func (e *Editor) cursorDown(c Cursor) Cursor {
-	return c
+	panic("todo")
+}
+
+func (e *Editor) Undo() {
+	E.Ui.Update(func(s *ui.State) {
+		newDisp, err := e.buffer.Undo()
+		if err != nil {
+			s.Warning = err.Error()
+		} else {
+			e.cursors = []Cursor{{Begin: newDisp, End: newDisp + 1}}
+		}
+	})
+}
+
+func (e *Editor) Redo() {
+	E.Ui.Update(func(s *ui.State) {
+		newDisp, err := e.buffer.Redo()
+		if err != nil {
+			s.Warning = err.Error()
+		} else {
+			e.cursors = []Cursor{{Begin: newDisp, End: newDisp + 1}}
+		}
+	})
 }

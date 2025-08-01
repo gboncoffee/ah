@@ -2,19 +2,23 @@ package main
 
 import (
 	"errors"
-	"slices"
+
+	"github.com/gboncoffee/ah/buffer"
 )
 
+var ErrorImTheMinibuffer = errors.New("i'm the minibuffer")
+var ErrorInPrompt = errors.New("in the prompt")
+
 type Minibuffer struct {
-	prompt  []rune
-	content []rune
-	editor  *Editor
-	commit  func(string)
-	cancel  func()
+	buffer     *buffer.Buffer[rune]
+	promptSize int
+	editor     *Editor
+	commit     func(string)
+	cancel     func()
 }
 
 func (b *Minibuffer) Init() {
-	b.editor = NewEditor(b)
+	b.Reset()
 	b.editor.AddCursor(Cursor{Begin: 0, End: 1})
 	b.editor.DefaultStyle = &E.Colors.Minibuffer
 	b.editor.CursorStyle = &E.Colors.Cursor
@@ -23,8 +27,8 @@ func (b *Minibuffer) Init() {
 }
 
 func (b *Minibuffer) Reset() {
-	b.prompt = []rune{}
-	b.content = []rune{'\n'}
+	b.buffer = buffer.FromString("\n")
+	b.editor = NewEditor(b)
 }
 
 func (b *Minibuffer) Editor() *Editor {
@@ -33,31 +37,43 @@ func (b *Minibuffer) Editor() *Editor {
 
 func (b *Minibuffer) Insert(idx int, r rune) error {
 	if r != '\n' {
-		b.content = slices.Insert(b.content, idx+len(b.prompt), r)
-		return nil
+		return b.buffer.Insert(idx, r)
+	}
+	if idx < b.promptSize {
+		return ErrorInPrompt
 	}
 
-	return errors.New("i'm the minibuffer")
+	return ErrorImTheMinibuffer
 }
 
 func (b *Minibuffer) Get(idx int) (rune, error) {
-	if idx < len(b.prompt) {
-		return b.prompt[idx], nil
-	}
-
-	idx -= len(b.prompt)
-
-	if len(b.content) <= idx {
-		return 0, errors.New("nothing to read")
-	}
-
-	return b.content[idx], nil
+	return b.buffer.Get(idx)
 }
 
-func (b *Minibuffer) Delete(disp int) error {
-	return nil
+func (b *Minibuffer) Delete(idx int) error {
+	if idx < b.promptSize {
+		return ErrorInPrompt
+	}
+
+	return b.buffer.Delete(idx)
 }
 
 func (b *Minibuffer) Size() int {
-	return len(b.prompt) + len(b.content)
+	return b.buffer.Size()
+}
+
+func (b *Minibuffer) Undo() (int, error) {
+	return b.buffer.Undo()
+}
+
+func (b *Minibuffer) Redo() (int, error) {
+	return b.buffer.Redo()
+}
+
+func (b *Minibuffer) Commit() {
+	b.commit(buffer.String(b.buffer)[b.promptSize:])
+}
+
+func (b *Minibuffer) Cancel() {
+	b.cancel()
 }

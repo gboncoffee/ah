@@ -6,8 +6,12 @@ import (
 	"errors"
 	"os"
 	"slices"
-	"strings"
+	"unsafe"
 )
+
+var ErrorBottomOfUndoList = errors.New("reached bottom of undo list")
+var ErrorTopOfUndoList = errors.New("reached top of undo list")
+var ErrorOutOfBounds = errors.New("out of bounds")
 
 // Using slices for representing pieces was kinda weird so I didn't.
 
@@ -15,10 +19,11 @@ var bufferSize = os.Getpagesize()
 
 type Buffer[Content any] struct {
 	// The first buffer never changes and does not respect the buffer size.
-	buffers [][]Content
+	buffers []backingBuffer[Content]
 	pieces  []piece
-	edits   []edit
-	size    int // Cache
+	//edits   []edit
+	size int // Cache
+	//undoTop int
 }
 
 type piece struct {
@@ -27,15 +32,16 @@ type piece struct {
 	length int
 }
 
-type edit struct {
-	piece    piece
-	deletion bool
-}
+//type edit struct {
+//	piece    piece
+//	idx      int
+//	deletion bool
+//}
 
 func New[Content any]() *Buffer[Content] {
 	buffer := new(Buffer[Content])
-	buffer.buffers = make([][]Content, 1)
-	buffer.buffers[0] = make([]Content, 0, bufferSize)
+	buffer.buffers = make([]backingBuffer[Content], 1)
+	buffer.buffers[0] = newBackingBuffer[Content](buffer.bufferSize(), 0)
 	buffer.pieces = append(buffer.pieces, piece{
 		buffer: 0,
 		start:  0,
@@ -44,62 +50,26 @@ func New[Content any]() *Buffer[Content] {
 	return buffer
 }
 
-func FromString(content string) *Buffer[rune] {
-	buffer := new(Buffer[rune])
-	buffer.buffers = make([][]rune, 2)
-
-	// We make Go alloc a sane amount of memory (may be up to 4x more than we
-	// actually need due to how UTF-8 works, but hey, we're doing only one
-	// allocation, and who cares about virtual memory anyways?).
-	buffer.buffers[0] = make([]rune, 0, len(content))
-	buffer.buffers[1] = make([]rune, 0, bufferSize)
-
-	for _, c := range content {
-		buffer.buffers[0] = append(buffer.buffers[0], c)
-		buffer.size++
-	}
-	buffer.pieces = append(buffer.pieces, piece{
-		buffer: 0,
-		start:  0,
-		length: len(buffer.buffers[0]),
-	})
-
-	return buffer
-}
-
 func FromSlice[Content any](content []Content) *Buffer[Content] {
 	buffer := new(Buffer[Content])
-	buffer.buffers = make([][]Content, 2)
+	buffer.buffers = make([]backingBuffer[Content], 2)
 
 	// Here the memory we alloc is exactly the needed.
-	buffer.buffers[0] = make([]Content, 0, len(content))
-	buffer.buffers[1] = make([]Content, 0, bufferSize)
+	buffer.buffers[0] = newBackingBuffer[Content](len(content), 0)
+	buffer.buffers[1] = newBackingBuffer[Content](
+		buffer.bufferSize(), len(content))
 
 	for _, c := range content {
-		buffer.buffers[0] = append(buffer.buffers[0], c)
+		buffer.buffers[0].append(c)
 		buffer.size++
 	}
 	buffer.pieces = append(buffer.pieces, piece{
 		buffer: 0,
 		start:  0,
-		length: len(buffer.buffers[0]),
+		length: buffer.buffers[0].size(),
 	})
 
 	return buffer
-}
-
-func String(b *Buffer[rune]) string {
-	var builder strings.Builder
-	builder.Grow((len(b.buffers)*(bufferSize-1) + len(b.buffers[0])) * 4)
-
-	for _, piece := range b.pieces {
-		content := b.pieceContent(piece)
-		for _, r := range content {
-			builder.WriteRune(r)
-		}
-	}
-
-	return builder.String()
 }
 
 func Content[Content any](b *Buffer[Content]) []Content {
@@ -119,50 +89,35 @@ func (b *Buffer[Content]) Insert(idx int, r Content) error {
 		return err
 	}
 
+	b.normalizeUndo()
 	b.size++
 
 	piec := b.pieces[pidx]
 	buffer := len(b.buffers) - 1
 
-	var ed *edit
-	newEdit := edit{deletion: false, piece: piece{
+	newPiece := piece{
 		buffer: buffer,
-		start:  len(b.buffers[buffer]),
-		length: 0,
-	}}
-	if len(b.edits) <= 0 {
-		b.edits = append(b.edits, newEdit)
-		ed = &b.edits[len(b.edits)-1]
-	} else {
-		ed = &b.edits[len(b.edits)-1]
-		if ed.deletion || ed.piece != piec || disp != piec.length {
-			b.edits = append(b.edits, newEdit)
-			ed = &b.edits[len(b.edits)-1]
-		}
+		start:  b.buffers[buffer].size(),
+		length: 1,
 	}
 
-	b.buffers[buffer] = append(b.buffers[buffer], r)
-	if len(b.buffers[buffer]) == bufferSize {
-		b.buffers = append(b.buffers, make([]Content, 0, bufferSize))
-	}
+	b.appendToBack(r)
 
-	// If "appending" on the piece.
+	// If "appending" on the piece and the piece is pointing to the end of the
+	// buffers, we literally append onto it.
 	if disp == piec.length {
-		// If it's the same piece of the last insertion, we simply append.
-		if piec == ed.piece {
-			ed.piece.length++
+		buf, idx := b.indexByPiece(piec, piec.length-1)
+		// Minus 2 because we need to exclude the item we just inserted.
+		sm1 := b.buffers[buf].size() - 2
+		if buf == buffer && idx == sm1 {
 			b.pieces[pidx].length++
 			return nil
 		}
 
-		// Else we insert.
-		ed.piece.length++
-		b.pieces = slices.Insert(b.pieces, pidx+1, ed.piece)
+		// Else we insert the new piece.
+		b.pieces = slices.Insert(b.pieces, pidx+1, newPiece)
 		return nil
 	}
-
-	ed.piece.length++
-	newPiece := ed.piece
 
 	// If inserting in the beggining of a piece.
 	if disp == 0 {
@@ -194,109 +149,20 @@ func (b *Buffer[Content]) Insert(idx int, r Content) error {
 	return nil
 }
 
-func (b *Buffer[Content]) findPieceWithIdx(idx int) (i int, d int, err error) {
-	disp := 0
-	for i, piece := range b.pieces {
-		ndisp := piece.length + disp
-		if ndisp > idx {
-			return i, idx - disp, nil
-		}
-		disp = ndisp
-	}
-
-	return 0, 0, errors.New("out of bounds")
-}
-
-func (b *Buffer[Content]) findPieceForInsertion(idx int) (i int, d int, err error) {
-	disp := 0
-	for i, piece := range b.pieces {
-		ndisp := piece.length + disp
-		if ndisp >= idx {
-			return i, idx - disp, nil
-		}
-		disp = ndisp
-	}
-
-	return 0, 0, errors.New("out of bounds")
-}
-
-func (b *Buffer[Content]) pieceContent(p piece) []Content {
-	arr := make([]Content, 0, p.length)
-	buf := p.buffer
-	bdisp := p.start
-	for range p.length {
-		if bdisp >= len(b.buffers[buf]) {
-			bdisp = 0
-			buf++
-		}
-		arr = append(arr, b.buffers[buf][bdisp])
-		bdisp++
-	}
-	return arr
-}
-
-func (b *Buffer[Content]) indexByPiece(p piece, d int) (buffer int, bdisp int) {
-	// If in the first (piece) buffer.
-	if p.start+d < len(b.buffers[p.buffer]) {
-		return p.buffer, d + p.start
-	}
-
-	disp := len(b.buffers[p.buffer]) - p.start
-	buf := p.buffer + 1
-	for {
-		newdisp := disp + len(b.buffers[buf])
-		if newdisp > d {
-			return buf, newdisp - d
-		}
-		buf++
-		disp = newdisp
-	}
-}
-
-func (b *Buffer[Content]) Get(idx int) (Content, error) {
-	var zero Content
-	piec, disp, err := b.findPieceWithIdx(idx)
-	if err != nil {
-		return zero, err
-	}
-
-	buf, d := b.indexByPiece(b.pieces[piec], disp)
-	return b.buffers[buf][d], nil
-}
-
 func (b *Buffer[Content]) Delete(idx int) error {
 	pidx, disp, err := b.findPieceWithIdx(idx)
 	if err != nil {
 		return err
 	}
 
+	b.normalizeUndo()
+	b.size--
+
 	piec := b.pieces[pidx]
-
-	buffer, _ := b.indexByPiece(b.pieces[pidx], disp)
-
-	var ed *edit
-	newEdit := edit{deletion: true, piece: piece{
-		buffer: buffer,
-		start:  0,
-		length: 0,
-	}}
-	if len(b.edits) <= 0 {
-		b.edits = append(b.edits, newEdit)
-		ed = &b.edits[len(b.edits)-1]
-	} else {
-		ed = &b.edits[len(b.edits)-1]
-		// TODO.
-		if !ed.deletion {
-			b.edits = append(b.edits, newEdit)
-			ed = &b.edits[len(b.edits)-1]
-		}
-	}
 
 	switch disp {
 	// If removing from the top of the piece, we can simply decrease.
 	case piec.length - 1:
-		ed.piece.start--
-		ed.piece.length++
 		b.pieces[pidx].length--
 	// If removing from the beggining of the piece, we can simply increase the
 	// start.
@@ -305,7 +171,7 @@ func (b *Buffer[Content]) Delete(idx int) error {
 		b.pieces[pidx].length--
 
 		// If the piece begins at the end of the buffer.
-		if b.pieces[pidx].start == len(b.buffers[b.pieces[pidx].buffer]) {
+		if b.pieces[pidx].start == b.buffers[b.pieces[pidx].buffer].size() {
 			b.pieces[pidx].buffer++
 			b.pieces[pidx].start = 0
 		}
@@ -324,11 +190,125 @@ func (b *Buffer[Content]) Delete(idx int) error {
 	// If the length of the piece now is 0, we can remove it.
 	if b.pieces[pidx].length == 0 {
 		b.pieces = slices.Delete(b.pieces, pidx, pidx+1)
+		// When removing, we may have sequential pieces. We can merge then.
+		if pidx > 0 {
+			b.tryMergePieces(pidx-1, pidx)
+		}
 	}
 
 	return nil
 }
 
+func (b *Buffer[Content]) tryMergePieces(p1i, p2i int) {
+	p1 := b.pieces[p1i]
+	p2 := b.pieces[p2i]
+	p1endbuf, p1enddisp := b.indexByPiece(p1, p1.length-1)
+
+	// If the p1end is at the end of a buffer, we have to check wether the p2
+	// begin is at the begin of the next one.
+	if p1enddisp == b.buffers[p1endbuf].size()-1 {
+		if p2.start == 0 && p2.buffer == p1endbuf+1 {
+			b.mergePieces(p1i, p2i)
+		}
+	} else if p1endbuf == p2.buffer && p1enddisp == p2.start-1 {
+		b.mergePieces(p1i, p2i)
+	}
+}
+
+func (b *Buffer[Content]) mergePieces(p1i, p2i int) {
+	removed := b.pieces[p2i]
+	b.pieces = slices.Delete(b.pieces, p2i, p2i+1)
+	b.pieces[p1i].length += removed.length
+}
+
+func (b *Buffer[Content]) Get(idx int) (Content, error) {
+	var zero Content
+	piec, disp, err := b.findPieceWithIdx(idx)
+	if err != nil {
+		return zero, err
+	}
+
+	buf, d := b.indexByPiece(b.pieces[piec], disp)
+	return b.buffers[buf].content[d], nil
+}
+
 func (b *Buffer[Content]) Size() int {
 	return b.size
+}
+
+func (b *Buffer[Content]) Undo() (int, error) {
+	panic("todo")
+}
+
+func (b *Buffer[Content]) Redo() (int, error) {
+	panic("todo")
+}
+
+func (b *Buffer[Content]) normalizeUndo() {
+	//panic("todo")
+	//b.edits = b.edits[:b.undoTop]
+}
+
+func (b *Buffer[Content]) findPieceWithIdx(idx int) (i int, d int, err error) {
+	disp := 0
+	for i, piece := range b.pieces {
+		ndisp := piece.length + disp
+		if ndisp > idx {
+			return i, idx - disp, nil
+		}
+		disp = ndisp
+	}
+
+	return 0, 0, ErrorOutOfBounds
+}
+
+func (b *Buffer[Content]) findPieceForInsertion(idx int) (i int, d int, err error) {
+	disp := 0
+	for i, piece := range b.pieces {
+		ndisp := piece.length + disp
+		if ndisp >= idx {
+			return i, idx - disp, nil
+		}
+		disp = ndisp
+	}
+
+	return 0, 0, ErrorOutOfBounds
+}
+
+func (b *Buffer[Content]) pieceContent(p piece) []Content {
+	arr := make([]Content, 0, p.length)
+	buf := p.buffer
+	bdisp := p.start
+	for range p.length {
+		if bdisp >= b.buffers[buf].size() {
+			bdisp = 0
+			buf++
+		}
+		arr = append(arr, b.buffers[buf].content[bdisp])
+		bdisp++
+	}
+	return arr
+}
+
+func (b *Buffer[Content]) indexByPiece(p piece, d int) (buffer int, bdisp int) {
+	// If in the first (piece) buffer.
+	if p.start+d < b.buffers[p.buffer].size() {
+		return p.buffer, d + p.start
+	}
+
+	disp := b.buffers[p.buffer].size() - p.start
+	buf := p.buffer + 1
+	for {
+		newdisp := disp + b.buffers[buf].size()
+		if newdisp > d {
+			return buf, newdisp - d
+		}
+		buf++
+		disp = newdisp
+	}
+}
+
+func (b *Buffer[Content]) bufferSize() int {
+	var zero Content
+	return bufferSize / int(unsafe.Sizeof(zero))
 }

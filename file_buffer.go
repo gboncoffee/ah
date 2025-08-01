@@ -96,3 +96,11 @@ func (b *FileBuffer) Delete(idx int) error {
 func (b *FileBuffer) Size() int {
 	return b.content.Size()
 }
+
+func (b *FileBuffer) Undo() (int, error) {
+	return b.content.Undo()
+}
+
+func (b *FileBuffer) Redo() (int, error) {
+	return b.content.Redo()
+}

@@ -5,6 +5,8 @@ type Buffer interface {
 	Delete(idx int) error
 	Get(idx int) (rune, error)
 	Size() int
+	Undo() (int, error)
+	Redo() (int, error)
 }
 
 type BufferReader struct {
