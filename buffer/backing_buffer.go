@@ -2,13 +2,11 @@ package buffer
 
 type backingBuffer[Content any] struct {
 	content []Content
-	disp    int
 }
 
-func newBackingBuffer[Content any](size int, disp int) backingBuffer[Content] {
+func newBackingBuffer[Content any](size int) backingBuffer[Content] {
 	return backingBuffer[Content]{
 		content: make([]Content, 0, size),
-		disp:    disp,
 	}
 }
 
@@ -24,8 +22,7 @@ func (b *Buffer[Content]) appendToBack(c Content) {
 	buf := &b.buffers[len(b.buffers)-1]
 	buf.content = append(buf.content, c)
 	if buf.full(b.bufferSize()) {
-		b.buffers = append(b.buffers, newBackingBuffer[Content](b.bufferSize(),
-			buf.disp+len(buf.content)))
+		b.buffers = append(b.buffers, newBackingBuffer[Content](b.bufferSize()))
 	}
 }
 

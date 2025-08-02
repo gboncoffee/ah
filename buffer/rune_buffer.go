@@ -27,12 +27,12 @@ func FromString(content string) *Buffer[rune] {
 	// We make Go alloc a sane amount of memory (may be up to 4x more than we
 	// actually need due to how UTF-8 works, but hey, we're doing only one
 	// allocation, and who cares about virtual memory anyways?).
-	buffer.buffers[0] = newBackingBuffer[rune](len(content), 0)
+	buffer.buffers[0] = newBackingBuffer[rune](len(content))
 	// This buffer does not have a displacement of zero, we're going to fix it
 	// after. We'll only actual discover it's proper displacement after
 	// iterating the string due to UTF-8.
 	buffer.buffers[1] =
-		newBackingBuffer[rune](buffer.bufferSize(), 0)
+		newBackingBuffer[rune](buffer.bufferSize())
 
 	for _, c := range content {
 		buffer.buffers[0].append(c)
@@ -40,7 +40,6 @@ func FromString(content string) *Buffer[rune] {
 	}
 
 	// Fix the displacement.
-	buffer.buffers[1].disp = buffer.size
 
 	buffer.pieces = append(buffer.pieces, piece{
 		buffer: 0,

@@ -9,8 +9,6 @@ import (
 	"unsafe"
 )
 
-var ErrorBottomOfUndoList = errors.New("reached bottom of undo list")
-var ErrorTopOfUndoList = errors.New("reached top of undo list")
 var ErrorOutOfBounds = errors.New("out of bounds")
 
 // Using slices for representing pieces was kinda weird so I didn't.
@@ -21,9 +19,9 @@ type Buffer[Content any] struct {
 	// The first buffer never changes and does not respect the buffer size.
 	buffers []backingBuffer[Content]
 	pieces  []piece
-	//edits   []edit
-	size int // Cache
-	//undoTop int
+	edits   []edit
+	size    int // Cache
+	undoTop int
 }
 
 type piece struct {
@@ -32,21 +30,10 @@ type piece struct {
 	length int
 }
 
-//type edit struct {
-//	piece    piece
-//	idx      int
-//	deletion bool
-//}
-
 func New[Content any]() *Buffer[Content] {
 	buffer := new(Buffer[Content])
 	buffer.buffers = make([]backingBuffer[Content], 1)
-	buffer.buffers[0] = newBackingBuffer[Content](buffer.bufferSize(), 0)
-	buffer.pieces = append(buffer.pieces, piece{
-		buffer: 0,
-		start:  0,
-		length: 0,
-	})
+	buffer.buffers[0] = newBackingBuffer[Content](buffer.bufferSize())
 	return buffer
 }
 
@@ -55,9 +42,9 @@ func FromSlice[Content any](content []Content) *Buffer[Content] {
 	buffer.buffers = make([]backingBuffer[Content], 2)
 
 	// Here the memory we alloc is exactly the needed.
-	buffer.buffers[0] = newBackingBuffer[Content](len(content), 0)
+	buffer.buffers[0] = newBackingBuffer[Content](len(content))
 	buffer.buffers[1] = newBackingBuffer[Content](
-		buffer.bufferSize(), len(content))
+		buffer.bufferSize())
 
 	for _, c := range content {
 		buffer.buffers[0].append(c)
@@ -84,6 +71,11 @@ func Content[Content any](b *Buffer[Content]) []Content {
 }
 
 func (b *Buffer[Content]) Insert(idx int, r Content) error {
+	if len(b.pieces) == 0 {
+		b.insertFirst(r)
+		return nil
+	}
+
 	pidx, disp, err := b.findPieceForInsertion(idx)
 	if err != nil {
 		return err
@@ -104,24 +96,29 @@ func (b *Buffer[Content]) Insert(idx int, r Content) error {
 	b.appendToBack(r)
 
 	// If "appending" on the piece and the piece is pointing to the end of the
-	// buffers, we literally append onto it.
+	// buffers, we literally append onto it. There's no need for a new undo.
 	if disp == piec.length {
-		buf, idx := b.indexByPiece(piec, piec.length-1)
+		buf, i := b.indexByPiece(piec, piec.length-1)
 		// Minus 2 because we need to exclude the item we just inserted.
 		sm1 := b.buffers[buf].size() - 2
-		if buf == buffer && idx == sm1 {
+		// We DO want a new undo entry in the case the last one was a
+		// deletion.
+		if b.lastIsInsertion() && buf == buffer && i == sm1 {
+			b.extendInsertion()
 			b.pieces[pidx].length++
 			return nil
 		}
 
 		// Else we insert the new piece.
 		b.pieces = slices.Insert(b.pieces, pidx+1, newPiece)
+		b.pushInsertion(idx, pidx+1, newPiece)
 		return nil
 	}
 
 	// If inserting in the beggining of a piece.
 	if disp == 0 {
 		b.pieces = slices.Insert(b.pieces, pidx, newPiece)
+		b.pushInsertion(idx, pidx, newPiece)
 		return nil
 	}
 
@@ -146,7 +143,22 @@ func (b *Buffer[Content]) Insert(idx int, r Content) error {
 		length: disp,
 	})
 
+	b.pushInsertion(idx, pidx+1, newPiece)
+
 	return nil
+}
+
+func (b *Buffer[Content]) insertFirst(r Content) {
+	b.normalizeUndo()
+	b.size++
+	newPiece := piece{
+		buffer: len(b.buffers) - 1,
+		start:  b.buffers[len(b.buffers)-1].size(),
+		length: 1,
+	}
+	b.appendToBack(r)
+	b.pieces = append(b.pieces, newPiece)
+	b.pushInsertion(0, 0, newPiece)
 }
 
 func (b *Buffer[Content]) Delete(idx int) error {
@@ -159,16 +171,28 @@ func (b *Buffer[Content]) Delete(idx int) error {
 	b.size--
 
 	piec := b.pieces[pidx]
+	buf, bd := b.indexByPiece(piec, disp)
 
 	switch disp {
 	// If removing from the top of the piece, we can simply decrease.
 	case piec.length - 1:
 		b.pieces[pidx].length--
+		i := pidx + 1
+		if b.pieces[pidx].length == 0 {
+			i--
+		}
+		b.undoRedoManageDeletion(idx, i, piece{
+			buffer: buf, start: bd, length: 1,
+		})
+
 	// If removing from the beggining of the piece, we can simply increase the
 	// start.
 	case 0:
 		b.pieces[pidx].start++
 		b.pieces[pidx].length--
+		b.undoRedoManageDeletion(idx, pidx, piece{
+			buffer: buf, start: bd, length: 1,
+		})
 
 		// If the piece begins at the end of the buffer.
 		if b.pieces[pidx].start == b.buffers[b.pieces[pidx].buffer].size() {
@@ -177,7 +201,7 @@ func (b *Buffer[Content]) Delete(idx int) error {
 		}
 	default:
 		// If we need to split the piece, we insert to the right.
-		newb, newbdisp := b.indexByPiece(b.pieces[pidx], disp+1)
+		newb, newbdisp := b.indexByPiece(piec, disp+1)
 		newPiece := piece{
 			buffer: newb,
 			start:  newbdisp,
@@ -185,40 +209,22 @@ func (b *Buffer[Content]) Delete(idx int) error {
 		}
 		b.pieces[pidx].length = disp
 		b.pieces = slices.Insert(b.pieces, pidx+1, newPiece)
+		b.undoRedoManageDeletion(idx, pidx+1, piece{
+			buffer: buf, start: bd, length: 1,
+		})
 	}
 
 	// If the length of the piece now is 0, we can remove it.
 	if b.pieces[pidx].length == 0 {
 		b.pieces = slices.Delete(b.pieces, pidx, pidx+1)
 		// When removing, we may have sequential pieces. We can merge then.
-		if pidx > 0 {
-			b.tryMergePieces(pidx-1, pidx)
-		}
+		// TODO: IMPLEMENT PIECE MERGING THAT WORKS WITH UNDO/REDO.
+		// if pidx > 0 {
+		// 	b.pieces = b.tryMergePieces(pidx-1, pidx, b.pieces)
+		// }
 	}
 
 	return nil
-}
-
-func (b *Buffer[Content]) tryMergePieces(p1i, p2i int) {
-	p1 := b.pieces[p1i]
-	p2 := b.pieces[p2i]
-	p1endbuf, p1enddisp := b.indexByPiece(p1, p1.length-1)
-
-	// If the p1end is at the end of a buffer, we have to check wether the p2
-	// begin is at the begin of the next one.
-	if p1enddisp == b.buffers[p1endbuf].size()-1 {
-		if p2.start == 0 && p2.buffer == p1endbuf+1 {
-			b.mergePieces(p1i, p2i)
-		}
-	} else if p1endbuf == p2.buffer && p1enddisp == p2.start-1 {
-		b.mergePieces(p1i, p2i)
-	}
-}
-
-func (b *Buffer[Content]) mergePieces(p1i, p2i int) {
-	removed := b.pieces[p2i]
-	b.pieces = slices.Delete(b.pieces, p2i, p2i+1)
-	b.pieces[p1i].length += removed.length
 }
 
 func (b *Buffer[Content]) Get(idx int) (Content, error) {
@@ -236,17 +242,28 @@ func (b *Buffer[Content]) Size() int {
 	return b.size
 }
 
-func (b *Buffer[Content]) Undo() (int, error) {
-	panic("todo")
+func (b *Buffer[Content]) tryMergePieces(p1i, p2i int, pieces []piece) []piece {
+	p1 := pieces[p1i]
+	p2 := pieces[p2i]
+	p1endbuf, p1enddisp := b.indexByPiece(p1, p1.length-1)
+
+	// If the p1end is at the end of a buffer, we have to check wether the p2
+	// begin is at the begin of the next one.
+	if p1enddisp == b.buffers[p1endbuf].size()-1 {
+		if p2.start == 0 && p2.buffer == p1endbuf+1 {
+			return b.mergePieces(p1i, p2i, pieces)
+		}
+	} else if p1endbuf == p2.buffer && p1enddisp == p2.start-1 {
+		return b.mergePieces(p1i, p2i, pieces)
+	}
+	return pieces
 }
 
-func (b *Buffer[Content]) Redo() (int, error) {
-	panic("todo")
-}
-
-func (b *Buffer[Content]) normalizeUndo() {
-	//panic("todo")
-	//b.edits = b.edits[:b.undoTop]
+func (b *Buffer[Content]) mergePieces(p1i, p2i int, pieces []piece) []piece {
+	removed := pieces[p2i]
+	pieces = slices.Delete(pieces, p2i, p2i+1)
+	pieces[p1i].length += removed.length
+	return pieces
 }
 
 func (b *Buffer[Content]) findPieceWithIdx(idx int) (i int, d int, err error) {
@@ -262,7 +279,9 @@ func (b *Buffer[Content]) findPieceWithIdx(idx int) (i int, d int, err error) {
 	return 0, 0, ErrorOutOfBounds
 }
 
-func (b *Buffer[Content]) findPieceForInsertion(idx int) (i int, d int, err error) {
+func (b *Buffer[Content]) findPieceForInsertion(
+	idx int,
+) (i int, d int, err error) {
 	disp := 0
 	for i, piece := range b.pieces {
 		ndisp := piece.length + disp
