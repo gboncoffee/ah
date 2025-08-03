@@ -3,14 +3,14 @@ package main
 import (
 	"errors"
 
-	"github.com/gboncoffee/ah/buffer"
+	pt "github.com/gboncoffee/gopiecetable"
 )
 
 var ErrorImTheMinibuffer = errors.New("i'm the minibuffer")
 var ErrorInPrompt = errors.New("in the prompt")
 
 type Minibuffer struct {
-	buffer     *buffer.Buffer[rune]
+	buffer     *pt.PieceTable[rune]
 	promptSize int
 	editor     *Editor
 	commit     func(string)
@@ -27,7 +27,7 @@ func (b *Minibuffer) Init() {
 }
 
 func (b *Minibuffer) Reset() {
-	b.buffer = buffer.FromString("\n")
+	b.buffer = pt.FromString("\n")
 	b.editor = NewEditor(b)
 }
 
@@ -71,7 +71,7 @@ func (b *Minibuffer) Redo() (int, error) {
 }
 
 func (b *Minibuffer) Commit() {
-	b.commit(buffer.String(b.buffer)[b.promptSize:])
+	b.commit(pt.String(b.buffer)[b.promptSize:])
 }
 
 func (b *Minibuffer) Cancel() {

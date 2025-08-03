@@ -6,13 +6,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/gboncoffee/ah/buffer"
+	pt "github.com/gboncoffee/gopiecetable"
 )
 
 type FileBuffer struct {
 	name    string
 	editors []*Editor
-	content *buffer.Buffer[rune]
+	content *pt.PieceTable[rune]
 	lines   int
 	ioLock  sync.Mutex
 }
@@ -28,7 +28,7 @@ func NewFileBuffer(name, content string) (fb *FileBuffer) {
 
 	fb = new(FileBuffer)
 	fb.name = name
-	fb.content = buffer.FromString(content)
+	fb.content = pt.FromString(content)
 
 	for _, c := range content {
 		if c == '\n' {
@@ -56,7 +56,7 @@ func (b *FileBuffer) TrySave() error {
 		return fmt.Errorf("cannot save file %v: %v", b.name, err)
 	}
 
-	_, err = f.WriteString(buffer.String(b.content))
+	_, err = f.WriteString(pt.String(b.content))
 	if err != nil {
 		return fmt.Errorf("cannot write to file %v: %v", b.name, err)
 	}

@@ -1,12 +1,11 @@
 module github.com/gboncoffee/ah
 
-go 1.24.0
+go 1.24.5
+
+require github.com/gdamore/tcell/v2 v2.8.1
 
 require (
-	github.com/gdamore/tcell/v2 v2.8.1
-)
-
-require (
+	github.com/gboncoffee/gopiecetable v0.0.0-20250803004955-443b4bb2d47b
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
