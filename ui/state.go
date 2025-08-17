@@ -8,11 +8,18 @@ type State struct {
 	Warning    string
 	Message    string
 	focus      any
+	width      int
+	height     int
+}
+
+func (s *State) EditorHeight() int {
+	return s.height
 }
 
 func (ui *Ui) render() {
 	ui.screen.Clear()
 	w, h := ui.screen.Size()
+	ui.state.width, ui.state.height = w, h
 	if ui.state.Editor != nil {
 		ui.renderEditor(
 			ui.state.Editor,

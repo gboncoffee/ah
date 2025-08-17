@@ -73,59 +73,33 @@ func (e *Editor) Delete() {
 func (e *Editor) CursorLeft() {
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
-			e.cursors[i] = e.cursorLeft(e.cursors[i])
+			e.cursors[i] = e.lineView.CursorLeft(e.cursors[i])
 		}
 	})
-}
-
-func (e *Editor) cursorLeft(c Cursor) Cursor {
-	if c.Begin > 0 {
-		c.Begin--
-	}
-	c.End = c.Begin + 1
-
-	return c
 }
 
 func (e *Editor) CursorRight() {
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
-			e.cursors[i] = e.cursorRight(e.cursors[i])
+			e.cursors[i] = e.lineView.CursorRight(e.cursors[i])
 		}
 	})
-}
-
-func (e *Editor) cursorRight(c Cursor) Cursor {
-	if c.Begin+1 < e.lineView.Buffer().Size() {
-		c.Begin++
-	}
-	c.End = c.Begin + 1
-
-	return c
 }
 
 func (e *Editor) CursorUp() {
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
-			e.cursors[i] = e.cursorUp(e.cursors[i])
+			e.cursors[i] = e.lineView.CursorUp(e.cursors[i])
 		}
 	})
-}
-
-func (e *Editor) cursorUp(c Cursor) Cursor {
-	panic("todo")
 }
 
 func (e *Editor) CursorDown() {
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
-			e.cursors[i] = e.cursorDown(e.cursors[i])
+			e.cursors[i] = e.lineView.CursorDown(e.cursors[i])
 		}
 	})
-}
-
-func (e *Editor) cursorDown(c Cursor) Cursor {
-	panic("todo")
 }
 
 func (e *Editor) Undo() {
@@ -148,4 +122,12 @@ func (e *Editor) Redo() {
 			e.cursors = []Cursor{{Begin: newDisp, End: newDisp + 1}}
 		}
 	})
+}
+
+func (e *Editor) ScrollForward(amount int) {
+	e.lineView.ScrollForward(amount)
+}
+
+func (e *Editor) ScrollBack(amount int) {
+	e.lineView.ScrollBack(amount)
 }

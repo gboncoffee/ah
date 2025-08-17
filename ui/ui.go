@@ -30,6 +30,10 @@ func New() *Ui {
 
 	ui := new(Ui)
 
+	scr.EnableMouse()
+	scr.EnableFocus()
+	scr.EnablePaste()
+
 	ui.screen = scr
 	ui.defaultStyle = tcell.StyleDefault.
 		Background(tcell.ColorReset).
