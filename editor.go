@@ -1,12 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 
 	"github.com/gboncoffee/ah/ui"
-
 	"github.com/gdamore/tcell/v2"
 )
 
@@ -17,183 +15,146 @@ type Cursor struct {
 
 // Implements the EditorView ui interface.
 type Editor struct {
-	buffer               Buffer
-	cursors              []Cursor
-	firstLine            int
-	disp                 int
-	vs                   ui.VirtualEditorScreen
-	TabSize              int
-	TextWidth            int
-	NumberColumn         bool
-	DefaultStyle         *tcell.Style
-	NumberColumnStyle    *tcell.Style
-	CursorStyle          *tcell.Style
-	TextWidthColumnStyle *tcell.Style
+	cursors  []Cursor
+	lineView LineView
+
+	tabSize      int
+	textWidth    int
+	numberColumn bool
+
+	defaultStyle         *tcell.Style
+	numberColumnStyle    *tcell.Style
+	cursorStyle          *tcell.Style
+	textWidthColumnStyle *tcell.Style
 }
 
 func NewEditor(b Buffer) (e *Editor) {
 	e = new(Editor)
-	e.buffer = b
-	e.TabSize = 8
+	e.lineView = NewLineView(b)
+	e.tabSize = 8
 
-	e.DefaultStyle = &E.Colors.Default
-	e.NumberColumnStyle = &E.Colors.NumberColumn
-	e.CursorStyle = &E.Colors.Cursor
-	e.TextWidthColumnStyle = &E.Colors.TextWidthColumn
+	e.defaultStyle = &E.Colors.Default
+	e.numberColumnStyle = &E.Colors.NumberColumn
+	e.cursorStyle = &E.Colors.Cursor
+	e.textWidthColumnStyle = &E.Colors.TextWidthColumn
 
 	return
 }
 
-func (e *Editor) VirtualScreen(width, height int, focus bool) ui.VirtualEditorScreen {
-	if e.vs != nil && len(e.vs[0]) == width && len(e.vs) == height {
-		e.render(focus)
-		return e.vs
-	}
-	e.newVS(width, height)
-	e.render(focus)
-	return e.vs
-}
-
-func (e *Editor) newVS(width, height int) {
-	e.vs = make(ui.VirtualEditorScreen, height)
-	for i := range e.vs {
-		e.vs[i] = make([]ui.VirtualRune, width)
-	}
-}
-
-func (e *Editor) height() int {
-	return len(e.vs)
-}
-
-func (e *Editor) width() int {
-	return len(e.vs[0])
-}
-
-func (e *Editor) actualLineNumWidth() (w int) {
-	if e.NumberColumn {
-		w = max(int(math.Log10(float64(e.firstLine+e.height())))+1, 5)
+func (e *Editor) actualLineNumWidth(height int) (w int) {
+	if e.numberColumn {
+		w = max(int(math.Log10(float64(e.lineView.FirstLine()+height)))+1, 5)
 	}
 	return
 }
 
-func (e *Editor) fillBackground() {
-	for i := range e.vs {
-		for j := range e.vs[i] {
-			e.vs[i][j].Style = e.DefaultStyle
-			e.vs[i][j].Rune = ' '
+func (e *Editor) fill(
+	width, height int,
+	setRune ui.SetRuneFunc,
+	setStyle ui.SetStyleFunc,
+) {
+	for y := range height {
+		for x := range width {
+			setRune(x, y, ' ')
+			setStyle(x, y, e.defaultStyle)
 		}
 	}
 }
 
-func (e *Editor) fillLineNumStyle(width int) {
-	if e.NumberColumn {
-		for h := range e.height() {
-			for i := range width {
-				e.vs[h][i].Style = e.NumberColumnStyle
-			}
+func (e *Editor) renderLineNum(
+	y int,
+	l Line,
+	n int,
+	lnw int,
+	setRune ui.SetRuneFunc,
+	setStyle ui.SetStyleFunc,
+) int {
+	if l.continuation {
+		if !e.numberColumn {
+			return n
 		}
-	}
-}
 
-func (e *Editor) drawLineNumber(line int, lineNumWidth int, cury int) {
-	num := strconv.Itoa(line + 1)
-	curx := lineNumWidth - 1 - len(num)
-	if curx < 0 {
-		panic(fmt.Sprintf("lineNumWidth %v len(num) %v", lineNumWidth, len(num)))
+		for x := range lnw - 1 {
+			setStyle(x, y, e.numberColumnStyle)
+			setRune(x, y, '>')
+		}
+		setStyle(lnw-1, y, e.numberColumnStyle)
+
+		return n
+	}
+
+	if !e.numberColumn {
+		return n + 1
+	}
+
+	num := strconv.Itoa(n + 1)
+	x := 0
+	for range lnw - 1 - len(num) {
+		setStyle(x, y, e.numberColumnStyle)
+		x++
 	}
 	for _, c := range num {
-		e.vs[cury][curx].Rune = c
-		curx++
+		setStyle(x, y, e.numberColumnStyle)
+		setRune(x, y, c)
+		x++
 	}
+
+	setStyle(x, y, e.numberColumnStyle)
+
+	return n + 1
 }
 
-func (e *Editor) drawCursors(focus bool, curx, cury, disp int) {
-	if focus {
-		for _, c := range e.cursors {
-			if disp >= c.Begin && disp < c.End {
-				e.vs[cury][curx].Style = e.CursorStyle
-				break
-			}
+func (e *Editor) renderCursors(disp, x, y int, setStyle ui.SetStyleFunc) bool {
+	for _, c := range e.cursors {
+		if c.Begin <= disp && c.End > disp {
+			setStyle(x, y, e.cursorStyle)
+			return true
 		}
 	}
+
+	return false
 }
 
-func (e *Editor) render(focus bool) {
-	height := e.height()
-	width := e.width()
+func (e *Editor) Render(
+	width, height int,
+	focus bool,
+	setRune ui.SetRuneFunc,
+	setStyle ui.SetStyleFunc,
+) {
+	e.fill(width, height, setRune, setStyle)
 
-	e.fillBackground()
+	lnw := e.actualLineNumWidth(height)
+	actualWidth := width - lnw
+	e.lineView.Update(height, actualWidth)
 
-	// Compute number column width.
-	lineNumWidth := e.actualLineNumWidth()
-	e.fillLineNumStyle(lineNumWidth)
+	line := e.lineView.FirstLine()
+	x := 0
+	y := 0
+	disp := e.lineView.Disp()
 
-	curx := 0
-	cury := 0
-	disp := e.disp
-	line := e.firstLine
-	continuing := false
-
-line:
-	for cury < height {
-		c, err := e.buffer.Get(disp)
-		if err != nil {
-			break line
-		}
-
-		// Draw line numbers.
-		if e.NumberColumn && !continuing {
-			e.drawLineNumber(line, lineNumWidth, cury)
-		}
-		curx += lineNumWidth
-		continuing = false
-
-		for {
-			e.vs[cury][curx].Rune = c
-			if e.TextWidth != 0 && curx-lineNumWidth == e.TextWidth {
-				e.vs[cury][curx].Style = e.TextWidthColumnStyle
+	for _, l := range e.lineView.Lines() {
+		line = e.renderLineNum(y, l, line, lnw, setRune, setStyle)
+		x += lnw
+		for _, c := range l.content {
+			setRune(x, y, c.c)
+			if !e.renderCursors(disp, x, y, setStyle) {
+				setStyle(x, y, e.defaultStyle)
 			}
-			e.drawCursors(focus, curx, cury, disp)
-
+			x += c.size
 			disp++
-
-			switch c {
-			case '\n':
-				// Maybe draw the text width line at the end.
-				if curx-lineNumWidth < e.TextWidth &&
-					e.TextWidth != 0 && lineNumWidth+e.TextWidth < width {
-					e.vs[cury][lineNumWidth+e.TextWidth].Style =
-						e.TextWidthColumnStyle
-				}
-				cury++
-				curx = 0
-				line++
-				continue line
-			case '\t':
-				curx = lineNumWidth + (((curx-lineNumWidth)+8)/8)*8
-			default:
-				curx++
-			}
-
-			if curx >= width {
-				curx = 0
-				cury++
-				continuing = true
-				continue line
-			}
-
-			c, err = e.buffer.Get(disp)
-			if err != nil {
-				cury++
-				break line
+		}
+		x = 0
+		y++
+	}
+	for y < height {
+		setRune(0, y, '~')
+		setStyle(0, y, e.numberColumnStyle)
+		if lnw > 1 {
+			for i := range lnw - 1 {
+				setStyle(i+1, y, e.numberColumnStyle)
+				i++
 			}
 		}
-	}
-
-	// Fill eob.
-	for cury < height {
-		e.vs[cury][0].Rune = '~'
-		e.vs[cury][0].Style = e.NumberColumnStyle
-		cury++
+		y++
 	}
 }

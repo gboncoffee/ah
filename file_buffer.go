@@ -67,8 +67,8 @@ func (b *FileBuffer) TrySave() error {
 func (b *FileBuffer) NewEditor() (e *Editor) {
 	e = NewEditor(b)
 
-	e.TextWidth = 80
-	e.NumberColumn = true
+	e.textWidth = 80
+	e.numberColumn = true
 
 	e.AddCursor(Cursor{Begin: 0, End: 1})
 

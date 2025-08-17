@@ -8,7 +8,7 @@ import (
 )
 
 func (e *Editor) Save() {
-	if fb, ok := e.buffer.(*FileBuffer); ok {
+	if fb, ok := e.lineView.Buffer().(*FileBuffer); ok {
 		E.Ui.Update(func(s *ui.State) {
 			s.Message = fmt.Sprintf("Saving buffer %v...", fb.Name())
 		})
@@ -46,7 +46,7 @@ func (e *Editor) AddCursor(cursor Cursor) {
 func (e *Editor) RuneEntered(re rune) {
 	E.Ui.Update(func(_ *ui.State) {
 		for i := range e.cursors {
-			e.buffer.Insert(e.cursors[i].Begin, re)
+			e.lineView.Buffer().Insert(e.cursors[i].Begin, re)
 			for j := range e.cursors[i:] {
 				e.cursors[j].Begin++
 				e.cursors[j].End++
@@ -60,7 +60,7 @@ func (e *Editor) Delete() {
 		for i := range e.cursors {
 			delRange := e.cursors[i].End - e.cursors[i].Begin
 			for range delRange {
-				e.buffer.Delete(e.cursors[i].Begin - 1)
+				e.lineView.Buffer().Delete(e.cursors[i].Begin - 1)
 			}
 			for j := range e.cursors[i:] {
 				e.cursors[j].Begin -= delRange
@@ -96,7 +96,7 @@ func (e *Editor) CursorRight() {
 }
 
 func (e *Editor) cursorRight(c Cursor) Cursor {
-	if c.Begin+1 < e.buffer.Size() {
+	if c.Begin+1 < e.lineView.Buffer().Size() {
 		c.Begin++
 	}
 	c.End = c.Begin + 1
@@ -130,7 +130,7 @@ func (e *Editor) cursorDown(c Cursor) Cursor {
 
 func (e *Editor) Undo() {
 	E.Ui.Update(func(s *ui.State) {
-		newDisp, err := e.buffer.Undo()
+		newDisp, err := e.lineView.Buffer().Undo()
 		if err != nil {
 			s.Warning = err.Error()
 		} else {
@@ -141,7 +141,7 @@ func (e *Editor) Undo() {
 
 func (e *Editor) Redo() {
 	E.Ui.Update(func(s *ui.State) {
-		newDisp, err := e.buffer.Redo()
+		newDisp, err := e.lineView.Buffer().Redo()
 		if err != nil {
 			s.Warning = err.Error()
 		} else {

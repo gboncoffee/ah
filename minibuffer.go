@@ -20,8 +20,8 @@ type Minibuffer struct {
 func (b *Minibuffer) Init() {
 	b.Reset()
 	b.editor.AddCursor(Cursor{Begin: 0, End: 1})
-	b.editor.DefaultStyle = &E.Colors.Minibuffer
-	b.editor.CursorStyle = &E.Colors.Cursor
+	b.editor.defaultStyle = &E.Colors.Minibuffer
+	b.editor.cursorStyle = &E.Colors.Cursor
 
 	b.Reset()
 }
