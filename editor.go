@@ -104,15 +104,23 @@ func (e *Editor) renderLineNum(
 	return n + 1
 }
 
-func (e *Editor) renderCursors(disp, x, y int, setStyle ui.SetStyleFunc) bool {
+func (e *Editor) renderCursors(disp, x, y int, setStyle ui.SetStyleFunc) {
 	for _, c := range e.cursors {
 		if c.Begin <= disp && c.End > disp {
 			setStyle(x, y, e.cursorStyle)
-			return true
+			return
 		}
 	}
+}
 
-	return false
+func (e *Editor) renderTW(x, y, lnw int, setStyle ui.SetStyleFunc) {
+	if e.textWidth == 0 {
+		return
+	}
+
+	if x-lnw == e.textWidth {
+		setStyle(x, y, e.textWidthColumnStyle)
+	}
 }
 
 func (e *Editor) Render(
@@ -137,11 +145,19 @@ func (e *Editor) Render(
 		x += lnw
 		for _, c := range l.content {
 			setRune(x, y, c.c)
-			if !e.renderCursors(disp, x, y, setStyle) {
-				setStyle(x, y, e.defaultStyle)
-			}
+			setStyle(x, y, e.defaultStyle)
+			e.renderTW(x, y, lnw, setStyle)
+			e.renderCursors(disp, x, y, setStyle)
 			x += c.size
 			disp++
+		}
+		// Render text width if applicable.
+		if e.textWidth > 0 &&
+			!l.continuation &&
+			x-lnw < e.textWidth &&
+			e.textWidth < actualWidth {
+
+			setStyle(lnw+e.textWidth, y, e.textWidthColumnStyle)
 		}
 		x = 0
 		y++
