@@ -1,5 +1,5 @@
-github.com/gboncoffee/gopiecetable v0.0.0-20250803004955-443b4bb2d47b h1:o2yTXzypt9sWXvGsZ9YtyLYyOO8wrAlZF4FJtvq8GJA=
-github.com/gboncoffee/gopiecetable v0.0.0-20250803004955-443b4bb2d47b/go.mod h1:qsEeMiN4MVggYC0IF+I/addQ66+0oiFnAuwk21ibBlY=
+github.com/gboncoffee/gopiecetable v1.0.1 h1:CwneB8YP1oMwy+qZ+TCs2lFXQ2GAEQ6SPv/8+T8oEic=
+github.com/gboncoffee/gopiecetable v1.0.1/go.mod h1:qsEeMiN4MVggYC0IF+I/addQ66+0oiFnAuwk21ibBlY=
 github.com/gdamore/encoding v1.0.1 h1:YzKZckdBL6jVt2Gc+5p82qhrGiqMdG/eNs6Wy0u3Uhw=
 github.com/gdamore/encoding v1.0.1/go.mod h1:0Z0cMFinngz9kS1QfMjCP8TY7em3bZYeeklsSDPivEo=
 github.com/gdamore/tcell/v2 v2.8.1 h1:KPNxyqclpWpWQlPLx6Xui1pMk8S+7+R37h3g07997NU=
